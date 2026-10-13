@@ -29,6 +29,8 @@ export interface EventRecord {
   description: string;
   tags?: string[];
   status: "pending" | "approved" | "revision" | "needs_revision" | "completed" | "rejected";
+  urgency_tier?: "P1" | "P2" | "P3";
+  clearance_hash?: string;
   admin_feedback?: string;
   external_registration_link?: string;
   registration_link?: string;
