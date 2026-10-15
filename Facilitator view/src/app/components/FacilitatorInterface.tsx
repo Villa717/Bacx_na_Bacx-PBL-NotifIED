@@ -13,6 +13,7 @@ import {
   Paperclip,
   AlertTriangle,
   X,
+  LogOut,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
@@ -68,7 +69,6 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
     }, 1200);
   };
 
-  // 1. Fetch Submitted Events from Database
   const fetchMyEvents = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -84,7 +84,6 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
     setLoading(false);
   };
 
-  // 2. Realtime Listener: Updates status immediately when Admin approves/rejects
   useEffect(() => {
     fetchMyEvents();
 
@@ -104,11 +103,9 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
     };
   }, []);
 
-  // 3. Submit Event to Database
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Strict UC-02 Enforcement Guard: Audit must have been run and cleared
     if (!auditResult) {
       alert(
         "Strict Pre-Audit Required: You must attach your compliance packet and click 'Run AI Optical Pre-Audit Check' before submitting to the review queue."
@@ -161,7 +158,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
 
   return (
     <div className="h-full w-full bg-[#0B132B] text-white flex flex-col overflow-y-auto">
-      {/* Subheader */}
+      {/* Subheader bar with the single Refresh and Exit to Login buttons */}
       <div className="px-8 py-4 border-b border-white/10 bg-[#0E1733] flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-base font-bold tracking-tight">Event Proposal Portal</h1>
@@ -170,7 +167,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
         <div className="flex items-center gap-2">
           <button
             onClick={fetchMyEvents}
-            className="p-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors flex items-center gap-2 text-xs cursor-pointer"
+            className="p-2 px-3 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors flex items-center gap-2 text-xs cursor-pointer border border-white/5"
           >
             <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -178,8 +175,9 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
           {onLogout && (
             <button
               onClick={onLogout}
-              className="p-2 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors text-xs cursor-pointer"
+              className="p-2 px-3 bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1.5 text-xs cursor-pointer border border-white/10"
             >
+              <LogOut className="size-3.5" />
               Exit to Login
             </button>
           )}
@@ -188,8 +186,8 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
 
       {/* Main Grid */}
       <div className="flex-1 p-6 md:p-8 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left: Proposal Form (5 Cols) */}
-        <div className="lg:col-span-5 bg-[#16203D] border border-white/10 rounded-2xl p-6 shadow-xl h-fit">
+        {/* Left: Proposal Form (5 Cols) with Square Corners */}
+        <div className="lg:col-span-5 bg-[#16203D] border border-white/10 p-6 shadow-xl h-fit">
           <h2 className="text-xs font-bold tracking-wider text-[#FDB813] uppercase mb-4 flex items-center gap-2">
             <FileText className="size-4" /> Submit New Proposal
           </h2>
@@ -202,7 +200,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g., Annual Tech Hackathon"
-                className="w-full p-2.5 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
               />
             </div>
 
@@ -213,7 +211,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 value={organization}
                 onChange={(e) => setOrganization(e.target.value)}
                 placeholder="e.g., Computer Science Society"
-                className="w-full p-2.5 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
               />
             </div>
 
@@ -225,7 +223,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                   required
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                  className="w-full p-2 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
                 />
               </div>
               <div>
@@ -235,7 +233,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                   required
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                  className="w-full p-2 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
                 />
               </div>
               <div>
@@ -245,7 +243,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                   required
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                  className="w-full p-2 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
                 />
               </div>
             </div>
@@ -257,7 +255,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 value={venue}
                 onChange={(e) => setVenue(e.target.value)}
                 placeholder="e.g., Multipurpose Hall 1"
-                className="w-full p-2.5 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
               />
             </div>
 
@@ -268,7 +266,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Objectives and program flow..."
-                className="w-full p-2.5 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none resize-none"
+                className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none resize-none"
               />
             </div>
 
@@ -278,25 +276,25 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 value={regLink}
                 onChange={(e) => setRegLink(e.target.value)}
                 placeholder="https://forms.gle/..."
-                className="w-full p-2.5 rounded-xl bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
               />
             </div>
 
-            {/* ── Clearance Packet & AI Pre-Audit Verification ── */}
-            <div className="p-4 rounded-xl bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
+            {/* Clearance Packet & AI Pre-Audit Verification */}
+            <div className="p-4 bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
                   <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Audit Intake
                 </span>
-                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30">
                   Gemini Multimodal
                 </span>
               </div>
 
-              {/* Real Interactive File Pickers with Removal Capability */}
+              {/* Square Interactive File Pickers */}
               <div className="space-y-2 text-xs text-[#8D99AE]">
                 {/* APF Form File Picker */}
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition">
+                <div className="flex items-center justify-between p-2.5 bg-[#16203D] border border-white/5 hover:border-white/20 transition">
                   <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
                     <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
                     <span className="shrink-0">Signed APF Form *</span>
@@ -323,7 +321,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                         setApfFile(null);
                         setAuditResult(null);
                       }}
-                      className="text-white/40 hover:text-red-400 transition p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                      className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                       title="Remove attachment"
                     >
                       <X className="size-3.5" />
@@ -331,8 +329,8 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                   )}
                 </div>
 
-                {/* Budget Itemization File Picker */}
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition">
+                {/* Budget Breakdown File Picker */}
+                <div className="flex items-center justify-between p-2.5 bg-[#16203D] border border-white/5 hover:border-white/20 transition">
                   <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
                     <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
                     <span className="shrink-0">Budget Breakdown *</span>
@@ -359,7 +357,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                         setBudgetFile(null);
                         setAuditResult(null);
                       }}
-                      className="text-white/40 hover:text-red-400 transition p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                      className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                       title="Remove attachment"
                     >
                       <X className="size-3.5" />
@@ -368,7 +366,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 </div>
 
                 {/* Mandatory Waivers File Picker */}
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition">
+                <div className="flex items-center justify-between p-2.5 bg-[#16203D] border border-white/5 hover:border-white/20 transition">
                   <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
                     <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
                     <span className="shrink-0">Participant Waivers (If Off-Campus)</span>
@@ -395,7 +393,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                         setWaiverFile(null);
                         setAuditResult(null);
                       }}
-                      className="text-white/40 hover:text-red-400 transition p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                      className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                       title="Remove attachment"
                     >
                       <X className="size-3.5" />
@@ -404,12 +402,12 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 </div>
               </div>
 
-              {/* Run Pre-Audit Button */}
+              {/* Pre-Audit Button */}
               <button
                 type="button"
                 onClick={runPreAuditScan}
                 disabled={isAuditing}
-                className="w-full py-2 rounded-lg bg-blue-600/30 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                className="w-full py-2 bg-blue-600/30 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <Sparkles className={`size-3.5 ${isAuditing ? "animate-spin" : ""}`} />
                 {isAuditing ? "Analyzing Compliance via Gemini..." : "Run AI Optical Pre-Audit Check"}
@@ -418,7 +416,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
               {/* Pre-Audit Feedback Results */}
               {auditResult && (
                 <div
-                  className={`p-3 rounded-lg border text-xs space-y-2 ${
+                  className={`p-3 border text-xs space-y-2 ${
                     auditResult.passed
                       ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-300"
                       : "bg-amber-950/30 border-amber-500/40 text-amber-300"
@@ -439,13 +437,13 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                   </div>
 
                   <div className="grid grid-cols-3 gap-1.5 text-[10px] text-white/80">
-                    <div className="p-1 rounded bg-black/30 text-center">
+                    <div className="p-1 bg-black/30 text-center">
                       Adviser: {auditResult.adviserSignature ? "✓ Valid" : "✗ Missing"}
                     </div>
-                    <div className="p-1 rounded bg-black/30 text-center">
+                    <div className="p-1 bg-black/30 text-center">
                       Budget: {auditResult.budgetBalanced ? "✓ Reconciled" : "✗ Error"}
                     </div>
-                    <div className="p-1 rounded bg-black/30 text-center">
+                    <div className="p-1 bg-black/30 text-center">
                       Waivers: {auditResult.waiversValid ? "✓ Present" : "✗ Missing"}
                     </div>
                   </div>
@@ -458,7 +456,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
             <button
               type="submit"
               disabled={submitting || !auditResult?.passed}
-              className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all mt-2 ${
+              className={`w-full py-3 font-bold text-xs flex items-center justify-center gap-2 transition-all mt-2 ${
                 auditResult?.passed
                   ? "bg-[#FDB813] hover:bg-[#e0a20f] text-black shadow-lg cursor-pointer"
                   : "bg-white/10 text-white/40 cursor-not-allowed border border-white/5"
@@ -476,7 +474,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
           </form>
         </div>
 
-        {/* Right: Proposal List & Status (7 Cols) */}
+        {/* Right: Proposal List & Status (7 Cols) with Square Corners */}
         <div className="lg:col-span-7 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs font-bold tracking-wider text-white uppercase">Your Submitted Proposals</h2>
@@ -485,26 +483,26 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
 
           <div className="space-y-3">
             {events.length === 0 ? (
-              <div className="p-8 rounded-xl bg-[#16203D] border border-white/10 text-center text-xs text-[#8D99AE]">
+              <div className="p-8 bg-[#16203D] border border-white/10 text-center text-xs text-[#8D99AE]">
                 No proposals submitted yet. Fill out the form to submit one.
               </div>
             ) : (
               events.map((item) => (
-                <div key={item.event_id} className="p-4 rounded-xl bg-[#16203D] border border-white/10 space-y-2 text-left">
+                <div key={item.event_id} className="p-4 bg-[#16203D] border border-white/10 space-y-2 text-left">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h3 className="text-sm font-bold text-white">{item.title}</h3>
                       <p className="text-xs text-[#8D99AE]">{item.organization || "Student Org"}</p>
                     </div>
                     <span
-                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize ${
+                      className={`text-[10px] font-bold px-2 py-0.5 capitalize border ${
                         item.status === "pending"
-                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                          ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
                           : item.status === "approved"
-                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
                           : item.status === "needs_revision"
-                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                          : "bg-red-500/20 text-red-400 border border-red-500/30"
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                          : "bg-red-500/20 text-red-400 border-red-500/30"
                       }`}
                     >
                       {item.status ? item.status.replace("_", " ") : "Pending"}
@@ -524,7 +522,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                   </div>
 
                   {item.status === "needs_revision" && item.admin_feedback && (
-                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 mt-2">
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 mt-2">
                       <span className="font-bold flex items-center gap-1 mb-0.5 text-amber-400">
                         <AlertCircle className="size-3.5" /> Coordinator Revision Notes:
                       </span>
@@ -534,16 +532,16 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
 
                   {/* Cryptographic Clearance Seal & Mobile Syndication */}
                   {item.status === "approved" && (
-                    <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5 mt-2.5">
+                    <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5 mt-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
                           <ShieldCheck className="size-3.5" /> Institutional Clearance Endorsement
                         </span>
-                        <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                        <span className="text-[9px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
                           RA 8792 Signed
                         </span>
                       </div>
-                      <div className="font-mono text-[9px] text-white/70 break-all bg-black/40 p-2 rounded border border-white/5">
+                      <div className="font-mono text-[9px] text-white/70 break-all bg-black/40 p-2 border border-white/5">
                         SHA-256: {item.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
                       </div>
                       <div className="flex items-center justify-between text-[10px] text-white/60">
