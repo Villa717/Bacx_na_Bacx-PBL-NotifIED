@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B132B" />
+      <stop offset="50%" stop-color="#0E1A40" />
+      <stop offset="100%" stop-color="#0A1128" />
+    </linearGradient>
+
+    <!-- Wave Gradients -->
+    <linearGradient id="blueWave1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1B3B8B" />
+      <stop offset="100%" stop-color="#142B66" />
+    </linearGradient>
+
+    <linearGradient id="blueWave2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#244BB5" />
+      <stop offset="100%" stop-color="#1A3580" />
+    </linearGradient>
+
+    <!-- Halftone Dot Pattern Definition -->
+    <pattern id="halftonePattern" x="0" y="0" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="11" cy="11" r="5" fill="#FFD000" opacity="0.85" />
+    </pattern>
+
+    <!-- Mask to fade halftone dots into circular clusters -->
+    <radialGradient id="fadeMaskGrad1" cx="20%" cy="80%" r="45%">
+      <stop offset="0%" stop-color="#fff" />
+      <stop offset="70%" stop-color="#fff" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#000" stop-opacity="0" />
+    </radialGradient>
+    <mask id="halftoneMaskBottomLeft">
+      <circle cx="120" cy="960" r="260" fill="url(#fadeMaskGrad1)" />
+    </mask>
+
+    <radialGradient id="fadeMaskGrad2" cx="80%" cy="20%" r="45%">
+      <stop offset="0%" stop-color="#fff" />
+      <stop offset="70%" stop-color="#fff" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#000" stop-opacity="0" />
+    </radialGradient>
+    <mask id="halftoneMaskTopRight">
+      <circle cx="1800" cy="120" r="260" fill="url(#fadeMaskGrad2)" />
+    </mask>
+  </defs>
+
+  <!-- 1. Deep Midnight Blue Base -->
+  <rect width="1920" height="1080" fill="url(#bgGrad)" />
+
+  <!-- 2. Halftone Clusters (Bottom-Left and Top-Right) -->
+  <rect x="0" y="700" width="450" height="380" fill="url(#halftonePattern)" mask="url(#halftoneMaskBottomLeft)" />
+  <rect x="1500" y="0" width="420" height="380" fill="url(#halftonePattern)" mask="url(#halftoneMaskTopRight)" />
+
+  <!-- 3. Top Fluid Ribbon Layer -->
+  <path d="M-50,0 L-50,220 C220,380 480,50 820,180 C1160,310 1480,40 1970,160 L1970,0 Z" fill="url(#blueWave1)" opacity="0.75" />
+  <path d="M-50,0 L-50,160 C260,320 520,30 880,140 C1240,250 1520,20 1970,110 L1970,0 Z" fill="url(#blueWave2)" opacity="0.6" />
+
+  <!-- Top Yellow Ribbon Accent Lines -->
+  <path d="M-50,240 C240,400 500,70 840,200 C1180,330 1500,60 1970,180" fill="none" stroke="#FFD000" stroke-width="3" opacity="0.9" />
+  <path d="M-50,200 C300,120 620,340 1000,120 C1380,-100 1680,260 1970,120" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.3" />
+
+  <!-- 4. Bottom Fluid Ribbon Layer -->
+  <path d="M-50,1080 L-50,920 C320,840 680,1040 1050,930 C1420,820 1680,1020 1970,890 L1970,1080 Z" fill="url(#blueWave1)" opacity="0.75" />
+  <path d="M-50,1080 L-50,960 C360,880 720,1060 1100,970 C1460,870 1720,1040 1970,930 L1970,1080 Z" fill="url(#blueWave2)" opacity="0.6" />
+
+  <!-- Bottom Yellow Ribbon Accent Lines -->
+  <path d="M-50,900 C340,820 700,1020 1070,910 C1440,800 1700,1000 1970,870" fill="none" stroke="#FFD000" stroke-width="3" opacity="0.9" />
+  <path d="M-50,950 C400,1060 780,820 1200,980 C1560,1110 1780,820 1970,950" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.3" />
+
+  <!-- 5. Geometric Detail Accents (+ marks and circles) -->
+  <g stroke="#FFFFFF" stroke-width="1.5" opacity="0.35" fill="none">
+    <circle cx="160" cy="220" r="14" />
+    <circle cx="1120" cy="280" r="12" />
+    <circle cx="520" cy="940" r="14" />
+    <circle cx="1800" cy="900" r="12" />
+
+    <!-- Plus Marks -->
+    <path d="M600,320 L614,320 M607,313 L607,327" />
+    <path d="M80,540 L94,540 M87,533 L87,547" />
+    <path d="M1020,720 L1034,720 M1027,713 L1027,727" />
+    <path d="M1820,440 L1834,440 M1827,433 L1827,447" />
+  </g>
+</svg>
