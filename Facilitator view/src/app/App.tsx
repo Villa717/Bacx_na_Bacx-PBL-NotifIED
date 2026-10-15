@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { FacilitatorInterface } from "./components/FacilitatorInterface";
 import { Eye, EyeOff, AlertCircle } from "lucide-react";
+import facilitatorBg from "../assets/facilitator-bg.svg";
 
 const VALID_FACILITATOR_EMAIL = "facilitator@organization.edu";
 const VALID_PASSWORD = "password123";
@@ -75,21 +76,29 @@ export default function App() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen w-full bg-[#080E21] flex flex-col items-center justify-center p-4 md:p-8 font-sans text-white">
-        <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 text-white/80 text-xs font-semibold mb-6 shadow-sm">
+      <div
+        className="min-h-screen w-full relative flex flex-col items-center justify-center p-4 md:p-8 font-sans text-white bg-[#0B132B] bg-cover bg-center overflow-x-hidden"
+        style={{ backgroundImage: `url(${facilitatorBg})` }}
+      >
+        {/* Top Status Badge */}
+        <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B]/90 border border-white/15 text-white/90 text-xs font-semibold mb-6 shadow-md z-10">
           <span className="size-2 bg-blue-500"></span>
           NOTIFIED: FACILITATOR PORTAL
         </div>
 
-        <div className="w-full max-w-5xl bg-[#0D152D] overflow-hidden shadow-2xl border border-white/5 grid grid-cols-1 lg:grid-cols-12 min-h-[620px]">
-          {/* Left Column */}
-          <div className="lg:col-span-5 p-8 md:p-10 flex flex-col justify-between bg-[#0B132B]">
+        {/* Split Screen Container (Sharp 90-Degree Corners) */}
+        <div className="w-full max-w-5xl bg-[#0D152D]/95 border border-white/10 shadow-2xl grid grid-cols-1 lg:grid-cols-12 min-h-[620px] z-10 backdrop-blur-xs">
+          
+          {/* ── LEFT COLUMN: Facilitator Login Terminal (5 cols) ── */}
+          <div className="lg:col-span-5 p-8 md:p-10 flex flex-col justify-between bg-[#0B132B] border-r border-white/10">
             <div>
+              {/* Brand Header */}
               <div className="flex items-center gap-2.5 mb-8">
                 <span className="text-3xl font-black text-[#FFD000] tracking-tight">N</span>
                 <span className="text-2xl font-black text-[#FFD000] tracking-tight">otifiED</span>
               </div>
 
+              {/* Title & Subtitle */}
               <div className="mb-6 text-left">
                 <h1 className="text-2xl font-bold text-white mb-1">Facilitator Login</h1>
                 <p className="text-xs text-[#8D99AE]">
@@ -97,6 +106,7 @@ export default function App() {
                 </p>
               </div>
 
+              {/* Error Alert */}
               {errorMessage && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
                   <AlertCircle className="size-4 shrink-0 mt-0.5" />
@@ -104,6 +114,7 @@ export default function App() {
                 </div>
               )}
 
+              {/* Form Controls */}
               <form onSubmit={handleLogin} className="space-y-4 text-left">
                 <div>
                   <label className="text-xs font-semibold text-[#8D99AE] block mb-1">Email</label>
@@ -155,7 +166,7 @@ export default function App() {
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#0E1733] hover:bg-[#16203D] border border-white/10 text-white font-bold text-xs tracking-wide transition shadow-md hover:shadow-lg cursor-pointer mt-3"
+                  className="w-full py-3 bg-[#0E1733] hover:bg-[#16203D] border border-white/15 text-white font-bold text-xs tracking-wide transition shadow-md hover:shadow-lg cursor-pointer mt-3"
                 >
                   Sign In as Facilitator
                 </button>
@@ -167,28 +178,42 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Column */}
-          <div className="lg:col-span-7 bg-gradient-to-br from-[#1C2574] via-[#161F55] to-[#0E1538] p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
-            <div className="relative z-10 text-left max-w-md">
+          {/* ── RIGHT COLUMN: Content Stage (7 cols) ── */}
+          <div className="lg:col-span-7 p-8 md:p-12 flex flex-col justify-between text-left relative overflow-hidden bg-[#0A1024]/60">
+            {/* Header Content */}
+            <div className="relative z-10 max-w-md">
+              <span className="inline-block px-2.5 py-1 bg-white/5 border border-white/10 text-[#FFD000] text-[10px] font-mono uppercase tracking-wider mb-3">
+                Clearance Workspace
+              </span>
               <h2 className="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-2">
                 Welcome to the <br /> Facilitator Workspace
               </h2>
-              <p className="text-xs md:text-sm text-blue-200/80 leading-relaxed">
-                Draft, pre-audit, and submit campus event proposals for clearance.
+              <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-normal">
+                Draft, pre-audit, and submit campus event proposals for clearance approvals.
               </p>
             </div>
 
-            <div className="relative z-10 flex items-center justify-center mt-6">
-              <img
-                src="/assets/auth-illustration.png"
-                alt="Facilitator Workspace Illustration"
-                className="w-full max-h-[340px] object-contain drop-shadow-2xl"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
+            {/* Bottom Capability Badges */}
+            <div className="relative z-10 grid grid-cols-2 gap-3 max-w-sm mt-8">
+              <div className="p-3 bg-[#0B132B]/90 border border-white/10 text-white shadow-lg">
+                <div className="text-[10px] font-mono text-[#FFD000] uppercase font-bold tracking-wider">
+                  AI Pre-Audit
+                </div>
+                <div className="text-xs font-semibold text-slate-200 mt-0.5">
+                  Optical Document Check
+                </div>
+              </div>
+              <div className="p-3 bg-[#0B132B]/90 border border-white/10 text-white shadow-lg">
+                <div className="text-[10px] font-mono text-emerald-400 uppercase font-bold tracking-wider">
+                  Live Queue Sync
+                </div>
+                <div className="text-xs font-semibold text-slate-200 mt-0.5">
+                  Real-Time Clearance
+                </div>
+              </div>
             </div>
           </div>
+
         </div>
       </div>
     );
