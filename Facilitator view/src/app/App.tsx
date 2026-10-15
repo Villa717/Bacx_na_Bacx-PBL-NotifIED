@@ -48,15 +48,13 @@ export default function App() {
     }
 
     // 2. Prototype Credential Verification
-    // Accept either the default demo credentials or any @apc.edu.ph institutional email
     const isValid =
       (trimmedEmail === VALID_FACILITATOR_EMAIL && trimmedPassword === VALID_PASSWORD) ||
-      (trimmedEmail.endsWith("@student.apc.edu.ph") && trimmedPassword.length >= 6);
+      (trimmedEmail.endsWith("@student.apc.edu.ph") && trimmedPassword.length >= 6) ||
+      (trimmedEmail.endsWith("@apc.edu.ph") && trimmedPassword.length >= 6);
 
     if (!isValid) {
-      setErrorMessage(
-        "Invalid email or password"
-      );
+      setErrorMessage("Invalid email or password");
       return;
     }
 
@@ -82,111 +80,138 @@ export default function App() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen w-full bg-[#EAEFF5] flex flex-col items-center justify-center p-4 font-sans text-slate-900">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white shadow-xs border border-slate-200 text-slate-600 text-xs font-semibold mb-6">
-          <span className="size-2 rounded-full bg-blue-600"></span>
+      <div className="min-h-screen w-full bg-[#080E21] flex flex-col items-center justify-center p-4 md:p-8 font-sans text-white">
+        {/* Top Floating Badge */}
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/80 text-xs font-semibold mb-6 shadow-sm">
+          <span className="size-2 rounded-full bg-blue-500"></span>
           NOTIFIED: FACILITATOR PORTAL
         </div>
 
-        <div className="w-full max-w-[420px] bg-white rounded-3xl p-8 shadow-xl border border-slate-100 text-center">
-          <h1 className="text-2xl font-serif font-bold text-slate-900 mb-1">Facilitator Login</h1>
-          <p className="text-xs text-slate-500 mb-6">
-            Welcome back! Submit and track your event proposals.
-          </p>
-
-          {errorMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs text-left flex items-start gap-2">
-              <AlertCircle className="size-4 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} className="text-left space-y-4">
+        {/* Main Split-Screen Container Card */}
+        <div className="w-full max-w-5xl bg-[#0D152D] rounded-3xl overflow-hidden shadow-2xl border border-white/5 grid grid-cols-1 lg:grid-cols-12 min-h-[620px]">
+          
+          {/* ── LEFT COLUMN: Login Form (5 cols) ── */}
+          <div className="lg:col-span-5 p-8 md:p-10 flex flex-col justify-between bg-[#0B132B]">
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Email</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="facilitator@organization.edu"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0E1733]"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0E1733]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
+              {/* Brand Logo & Title with Yellow N */}
+              <div className="flex items-center gap-2.5 mb-8">
+                <span className="text-3xl font-black text-[#FFD000] tracking-tight">N</span>
+                <span className="text-2xl font-black text-[#FFD000] tracking-tight">NotifiED</span>
               </div>
+
+              {/* Form Heading Retaining Original Text */}
+              <div className="mb-6 text-left">
+                <h1 className="text-2xl font-bold text-white mb-1">Facilitator Login</h1>
+                <p className="text-xs text-[#8D99AE]">
+                  Welcome back! Submit and track your event proposals.
+                </p>
+              </div>
+
+              {/* Error Message */}
+              {errorMessage && (
+                <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {/* Input Form */}
+              <form onSubmit={handleLogin} className="space-y-4 text-left">
+                <div>
+                  <label className="text-xs font-semibold text-[#8D99AE] block mb-1">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="facilitator@organization.edu"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0E1733] border border-white/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#FFD000] transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#8D99AE] block mb-1">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#0E1733] border border-white/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#FFD000] transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Remember Me & Forgot Password */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <label className="flex items-center gap-2 text-[#8D99AE] hover:text-white cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="rounded bg-[#0E1733] border-white/20 text-[#FFD000] focus:ring-0 cursor-pointer"
+                    />
+                    Remember Me
+                  </label>
+                  <span className="text-blue-400 hover:text-blue-300 hover:underline cursor-pointer">
+                    Forgot Password
+                  </span>
+                </div>
+
+                {/* Sign In as Facilitator Button */}
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-xl bg-[#0E1733] hover:bg-[#16203D] border border-white/10 text-white font-bold text-xs tracking-wide transition shadow-md hover:shadow-lg cursor-pointer mt-3"
+                >
+                  Sign In as Facilitator
+                </button>
+              </form>
             </div>
 
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-slate-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                />
-                Remember Me
-              </label>
-              <span className="text-blue-600 hover:underline font-medium cursor-pointer">
-                Forgot Password
-              </span>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 rounded-xl bg-[#0E1733] hover:bg-[#16203D] text-white text-sm font-bold transition-colors cursor-pointer mt-2"
-            >
-              Sign In as Facilitator
-            </button>
-          </form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200"></div>
-            </div>
-            <div className="relative flex justify-center text-[11px] uppercase">
-              <span className="bg-white px-2 text-slate-400">Or continue with</span>
+            {/* Footer Tag */}
+            <div className="mt-8 text-[11px] text-[#8D99AE]/50">
+              © 2026 Asia Pacific College • All rights reserved.
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              // Simulated Microsoft SSO for rapid evaluation
-              setEmail("facilitator@apc.edu.ph");
-              setIsLoggedIn(true);
-            }}
-            className="w-full py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors cursor-pointer"
-          >
-            <svg className="size-4" viewBox="0 0 21 21">
-              <path fill="#f25022" d="M1 1h9v9H1z" />
-              <path fill="#00a4ef" d="M1 11h9v9H1z" />
-              <path fill="#7fba00" d="M11 1h9v9H11z" />
-              <path fill="#ffb900" d="M11 11h9v9H11z" />
-            </svg>
-            Sign in with Microsoft
-          </button>
-        </div>
+          {/* ── RIGHT COLUMN: Branded Canvas (7 cols) ── */}
+          <div className="lg:col-span-7 bg-gradient-to-br from-[#1C2574] via-[#161F55] to-[#0E1538] p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
+            {/* Background Organic Shapes */}
+            <div className="absolute -top-16 -right-16 size-72 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 right-0 size-80 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
 
-        <p className="text-xs text-slate-400 mt-8">© 2026 All rights reserved.</p>
+            {/* Header Content */}
+            <div className="relative z-10 text-left max-w-md">
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-2">
+                Welcome to the <br /> Facilitator Workspace
+              </h2>
+              <p className="text-xs md:text-sm text-blue-200/80 leading-relaxed">
+                Draft, pre-audit, and submit campus event proposals for clearance.
+              </p>
+            </div>
+
+            {/* Dual Actor Illustration Area */}
+            <div className="relative z-10 flex items-center justify-center mt-6">
+              <img
+                src="/assets/auth-illustration.png"
+                alt="Facilitator Workspace Illustration"
+                className="w-full max-h-[340px] object-contain drop-shadow-2xl"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            </div>
+          </div>
+
+        </div>
       </div>
     );
   }
