@@ -77,149 +77,142 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div
-        className="min-h-screen w-full relative flex flex-col items-center justify-center p-4 md:p-8 font-sans text-white bg-[#0B132B] bg-cover bg-center overflow-x-hidden"
+        className="min-h-screen w-full relative flex flex-col justify-between p-6 md:p-10 font-sans text-white bg-[#0B132B] bg-cover bg-center overflow-x-hidden"
         style={{ backgroundImage: `url(${facilitatorBg})` }}
       >
-        {/* Top Status Badge */}
-        <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B]/90 border border-white/15 text-white/90 text-xs font-semibold mb-6 shadow-md z-10">
-          <span className="size-2 bg-blue-500"></span>
-          NOTIFIED: FACILITATOR PORTAL
-        </div>
+        {/* ── Top Header Navigation ── */}
+        <header className="w-full flex items-center justify-between z-10 shrink-0">
+          {/* Brand Mark with Accent N */}
+          <div className="flex items-center gap-3">
+            <div className="size-9 bg-[#0B132B] flex items-center justify-center font-black text-[#FFD000] text-lg border border-white/10 shadow-md">
+              N
+            </div>
+            <div className="text-left">
+              <div className="flex items-center gap-2">
+                <span className="font-black text-lg text-white tracking-tight">NotifiED</span>
+                <span className="bg-[#0B132B] text-[#FFD000] text-[10px] font-mono font-bold px-2 py-0.5 uppercase tracking-wider border border-white/10">
+                  FACILITATOR
+                </span>
+              </div>
+              <p className="text-[11px] text-white/80 font-medium">Asia Pacific College Enterprise System</p>
+            </div>
+          </div>
 
-        {/* Split Screen Container (Sharp 90-Degree Corners) */}
-        <div className="w-full max-w-5xl bg-[#0D152D]/95 border border-white/10 shadow-2xl grid grid-cols-1 lg:grid-cols-12 min-h-[620px] z-10 backdrop-blur-xs">
-          
-          {/* ── LEFT COLUMN: Facilitator Login Terminal (5 cols) ── */}
-          <div className="lg:col-span-5 p-8 md:p-10 flex flex-col justify-between bg-[#0B132B] border-r border-white/10">
-            <div>
-              {/* Brand Header */}
-              <div className="flex items-center gap-2.5 mb-8">
-                <span className="text-3xl font-black text-[#FFD000] tracking-tight">N</span>
-                <span className="text-2xl font-black text-[#FFD000] tracking-tight">otifiED</span>
+          {/* Institutional Telemetry Status Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B] border border-white/15 text-white text-xs font-semibold shadow-md">
+            <span className="size-2 bg-blue-500"></span>
+            NOTIFIED: FACILITATOR PORTAL
+          </div>
+        </header>
+
+        {/* ── Main Left-Weighted Auth Terminal ── */}
+        <main className="w-full my-auto py-8 z-10 flex items-center justify-start lg:pl-16">
+          <div className="w-full max-w-[440px] bg-[#0E1528] border border-white/10 shadow-2xl p-8 md:p-10 text-left">
+            
+            {/* Terminal Meta Header */}
+            <div className="flex items-center justify-between text-[10px] font-mono tracking-widest text-[#FFD000] mb-3 uppercase">
+              <span>AUTHORIZED PROPOSAL DRAFTING</span>
+              <span className="text-white/40">v2.4 SECURE</span>
+            </div>
+
+            {/* Title & Description */}
+            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 tracking-tight">
+              Facilitator Login
+            </h1>
+            <p className="text-xs text-[#8D99AE] mb-6">
+              Draft, pre-audit, and submit campus event proposals.
+            </p>
+
+            {/* Error Alert */}
+            {errorMessage && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Credentials Input Form */}
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
+                  INSTITUTIONAL EMAIL
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="facilitator@organization.edu"
+                  className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition"
+                />
               </div>
 
-              {/* Title & Subtitle */}
-              <div className="mb-6 text-left">
-                <h1 className="text-2xl font-bold text-white mb-1">Facilitator Login</h1>
-                <p className="text-xs text-[#8D99AE]">
-                  Welcome back! Submit and track your event proposals.
-                </p>
-              </div>
-
-              {/* Error Alert */}
-              {errorMessage && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
-                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
-                  <span>{errorMessage}</span>
-                </div>
-              )}
-
-              {/* Form Controls */}
-              <form onSubmit={handleLogin} className="space-y-4 text-left">
-                <div>
-                  <label className="text-xs font-semibold text-[#8D99AE] block mb-1">Email</label>
+              <div>
+                <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
+                  PASSWORD
+                </label>
+                <div className="relative">
                   <input
-                    type="email"
+                    type={showPassword ? "text" : "password"}
                     required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="facilitator@organization.edu"
-                    className="w-full px-3.5 py-2.5 bg-[#0E1733] border border-white/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#FFD000] transition"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
                 </div>
+              </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-[#8D99AE] block mb-1">Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full px-3.5 py-2.5 bg-[#0E1733] border border-white/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#FFD000] transition"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
-                  </div>
-                </div>
+              {/* Remember & Password Help */}
+              <div className="flex items-center justify-between text-xs pt-1">
+                <label className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="bg-[#080D1A] border-white/20 text-[#FFD000] focus:ring-0 cursor-pointer"
+                  />
+                  Remember Me
+                </label>
+                <span className="text-[#FFD000] hover:underline cursor-pointer text-xs">
+                  Forgot Password?
+                </span>
+              </div>
 
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <label className="flex items-center gap-2 text-[#8D99AE] hover:text-white cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="bg-[#0E1733] border-white/20 text-[#FFD000] focus:ring-0 cursor-pointer"
-                    />
-                    Remember Me
-                  </label>
-                  <span className="text-blue-400 hover:text-blue-300 hover:underline cursor-pointer">
-                    Forgot Password
-                  </span>
-                </div>
+              {/* Action Button */}
+              <button
+                type="submit"
+                className="w-full py-3 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition shadow-lg cursor-pointer mt-4"
+              >
+                SIGN IN AS FACILITATOR →
+              </button>
+            </form>
 
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-[#0E1733] hover:bg-[#16203D] border border-white/15 text-white font-bold text-xs tracking-wide transition shadow-md hover:shadow-lg cursor-pointer mt-3"
-                >
-                  Sign In as Facilitator
-                </button>
-              </form>
-            </div>
-
-            <div className="mt-8 text-[11px] text-[#8D99AE]/50">
-              © 2026 Asia Pacific College • All rights reserved.
-            </div>
-          </div>
-
-          {/* ── RIGHT COLUMN: Content Stage (7 cols) ── */}
-          <div className="lg:col-span-7 p-8 md:p-12 flex flex-col justify-between text-left relative overflow-hidden bg-[#0A1024]/60">
-            {/* Header Content */}
-            <div className="relative z-10 max-w-md">
-              <span className="inline-block px-2.5 py-1 bg-white/5 border border-white/10 text-[#FFD000] text-[10px] font-mono uppercase tracking-wider mb-3">
-                Clearance Workspace
+            {/* Terminal Footprint */}
+            <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/50">
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 bg-[#FFD000]"></span>
+                Campus Clearance Portal
               </span>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-2">
-                Welcome to the <br /> Facilitator Workspace
-              </h2>
-              <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-normal">
-                Draft, pre-audit, and submit campus event proposals for clearance approvals.
-              </p>
+              <span>Asia Pacific College</span>
             </div>
 
-            {/* Bottom Capability Badges */}
-            <div className="relative z-10 grid grid-cols-2 gap-3 max-w-sm mt-8">
-              <div className="p-3 bg-[#0B132B]/90 border border-white/10 text-white shadow-lg">
-                <div className="text-[10px] font-mono text-[#FFD000] uppercase font-bold tracking-wider">
-                  AI Pre-Audit
-                </div>
-                <div className="text-xs font-semibold text-slate-200 mt-0.5">
-                  Optical Document Check
-                </div>
-              </div>
-              <div className="p-3 bg-[#0B132B]/90 border border-white/10 text-white shadow-lg">
-                <div className="text-[10px] font-mono text-emerald-400 uppercase font-bold tracking-wider">
-                  Live Queue Sync
-                </div>
-                <div className="text-xs font-semibold text-slate-200 mt-0.5">
-                  Real-Time Clearance
-                </div>
-              </div>
-            </div>
           </div>
+        </main>
 
-        </div>
+        {/* Empty Footer Spacer */}
+        <div className="h-4 z-10 shrink-0"></div>
       </div>
     );
   }
 
-  // Render the portal directly with only its own subheader exit button
   return (
     <div className="h-screen w-screen flex flex-col bg-[#0B132B] overflow-hidden">
       <main className="flex-1 flex overflow-hidden">
