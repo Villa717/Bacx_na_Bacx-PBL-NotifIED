@@ -13,7 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import adminBg from "../assets/admin-bg.jpg";
+import adminBg from "../assets/admin-bg.jpeg";
 
 // Designated prototype coordinator credentials (or accept any valid @apc.edu.ph staff/admin email)
 const VALID_ADMIN_EMAIL = "coordinator@apc.edu.ph";
