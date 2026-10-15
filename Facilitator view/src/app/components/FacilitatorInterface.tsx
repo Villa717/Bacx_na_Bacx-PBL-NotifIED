@@ -7,7 +7,6 @@ import {
   FileText,
   AlertCircle,
   RefreshCw,
-  Tag,
   Sparkles,
   ShieldCheck,
   CheckCircle2,
@@ -31,10 +30,10 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
   const [regLink, setRegLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // AI Pre-Audit States (UC-02)
-  const [apfFile, setApfFile] = useState<string>("APF_Signed_Endorsed.pdf");
-  const [budgetFile, setBudgetFile] = useState<string>("Budget_Reconciliation.xlsx");
-  const [waiversAttached, setWaiversAttached] = useState<boolean>(true);
+  // AI Pre-Audit File Attachment States (UC-02)
+  const [apfFile, setApfFile] = useState<File | null>(null);
+  const [budgetFile, setBudgetFile] = useState<File | null>(null);
+  const [waiverFile, setWaiverFile] = useState<File | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditResult, setAuditResult] = useState<{
     ran: boolean;
@@ -46,16 +45,21 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
   } | null>(null);
 
   const runPreAuditScan = () => {
+    if (!apfFile || !budgetFile) {
+      alert("Missing Required Documents: Please attach both the Signed APF Document and Budget Itemization Sheet before running the pre-audit check.");
+      return;
+    }
+
     setIsAuditing(true);
     setTimeout(() => {
-      const passed = waiversAttached;
+      const hasWaivers = !!waiverFile;
       setAuditResult({
         ran: true,
-        passed,
+        passed: hasWaivers,
         adviserSignature: true,
         budgetBalanced: true,
-        waiversValid: waiversAttached,
-        notes: waiversAttached
+        waiversValid: hasWaivers,
+        notes: hasWaivers
           ? "Pre-Audit Passed: Physical adviser endorsement detected optically. Line-item expenses reconcile with declared budget. Proposal is primed for dynamic queue routing."
           : "Pre-Audit Gap Alert: Missing signed off-campus participant liability waivers. Attach required documentation to prevent queue rejection.",
       });
@@ -100,20 +104,21 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
   }, []);
 
   // 3. Submit Event to Database
-const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-  
-   if (!waiversAttached) {
+
+    if (!waiverFile) {
       alert("Gap Remediation Required: Please attach all mandatory participant/parental waivers before routing this proposal to the Coordinator Review Queue.");
       return;
     }
+
     setSubmitting(true);
 
     const payload = {
       title: title.trim(),
       venue: venue.trim(),
       description: description.trim(),
-      event_date: date, 
+      event_date: date,
       start_time: startTime || null,
       end_time: endTime || null,
       status: "pending",
@@ -134,6 +139,10 @@ const handleSubmit = async (e: React.FormEvent) => {
       setVenue("");
       setDescription("");
       setRegLink("");
+      setApfFile(null);
+      setBudgetFile(null);
+      setWaiverFile(null);
+      setAuditResult(null);
       fetchMyEvents();
     }
     setSubmitting(false);
@@ -253,98 +262,135 @@ const handleSubmit = async (e: React.FormEvent) => {
             </div>
 
             {/* ── Clearance Packet & AI Pre-Audit Verification (UC-02) ── */}
-          <div className="p-4 rounded-xl bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Audit Intake (UC-02)
-              </span>
-              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                Gemini Multimodal
-              </span>
-            </div>
-
-            {/* Simulated Attachment Inputs */}
-            <div className="space-y-1.5 text-xs text-[#8D99AE]">
-              <div className="flex items-center justify-between p-2 rounded-lg bg-[#16203D] border border-white/5">
-                <span className="flex items-center gap-1.5 text-[11px] text-white/90">
-                  <Paperclip className="size-3 text-[#FDB813]" /> Signed APF Document
+            <div className="p-4 rounded-xl bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Audit Intake (UC-02)
                 </span>
-                <span className="text-[10px] text-emerald-400 font-mono">{apfFile}</span>
+                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                  Gemini Multimodal
+                </span>
               </div>
 
-              <div className="flex items-center justify-between p-2 rounded-lg bg-[#16203D] border border-white/5">
-                <span className="flex items-center gap-1.5 text-[11px] text-white/90">
-                  <Paperclip className="size-3 text-[#FDB813]" /> Budget Itemization Sheet
-                </span>
-                <span className="text-[10px] text-emerald-400 font-mono">{budgetFile}</span>
+              {/* Real Interactive File Pickers */}
+              <div className="space-y-2 text-xs text-[#8D99AE]">
+                {/* APF Form File Picker */}
+                <label className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition cursor-pointer">
+                  <span className="flex items-center gap-2 text-[11px] text-white/90">
+                    <Paperclip className="size-3.5 text-[#FDB813]" />
+                    <span>Signed APF Form *</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[170px]">
+                    {apfFile ? apfFile.name : "Choose PDF / Image"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".pdf,image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setApfFile(e.target.files[0]);
+                        setAuditResult(null);
+                      }
+                    }}
+                  />
+                </label>
+
+                {/* Budget Itemization File Picker */}
+                <label className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition cursor-pointer">
+                  <span className="flex items-center gap-2 text-[11px] text-white/90">
+                    <Paperclip className="size-3.5 text-[#FDB813]" />
+                    <span>Budget Breakdown *</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[170px]">
+                    {budgetFile ? budgetFile.name : "Choose XLSX / PDF"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setBudgetFile(e.target.files[0]);
+                        setAuditResult(null);
+                      }
+                    }}
+                  />
+                </label>
+
+                {/* Mandatory Waivers File Picker */}
+                <label className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition cursor-pointer">
+                  <span className="flex items-center gap-2 text-[11px] text-white/90">
+                    <Paperclip className="size-3.5 text-[#FDB813]" />
+                    <span>Participant Waivers (If Off-Campus)</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[170px]">
+                    {waiverFile ? waiverFile.name : "Choose PDF / ZIP"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".pdf,.zip,image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setWaiverFile(e.target.files[0]);
+                        setAuditResult(null);
+                      }
+                    }}
+                  />
+                </label>
               </div>
 
-              <label className="flex items-center justify-between p-2 rounded-lg bg-[#16203D] border border-white/5 cursor-pointer">
-                <span className="flex items-center gap-1.5 text-[11px] text-white/90">
-                  <Paperclip className="size-3 text-[#FDB813]" /> Mandatory Waivers Included
-                </span>
-                <input
-                  type="checkbox"
-                  checked={waiversAttached}
-                  onChange={(e) => {
-                    setWaiversAttached(e.target.checked);
-                    setAuditResult(null);
-                  }}
-                  className="rounded text-[#FDB813] focus:ring-0 cursor-pointer"
-                />
-              </label>
-            </div>
-
-            {/* Run Pre-Audit Button */}
-            <button
-              type="button"
-              onClick={runPreAuditScan}
-              disabled={isAuditing}
-              className="w-full py-2 rounded-lg bg-blue-600/30 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
-            >
-              <Sparkles className={`size-3.5 ${isAuditing ? "animate-spin" : ""}`} />
-              {isAuditing ? "Analyzing Compliance via Gemini..." : "Run AI Optical Pre-Audit Check"}
-            </button>
-
-            {/* Pre-Audit Feedback Results */}
-            {auditResult && (
-              <div
-                className={`p-3 rounded-lg border text-xs space-y-2 ${
-                  auditResult.passed
-                    ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-300"
-                    : "bg-amber-950/30 border-amber-500/40 text-amber-300"
-                }`}
+              {/* Run Pre-Audit Button */}
+              <button
+                type="button"
+                onClick={runPreAuditScan}
+                disabled={isAuditing}
+                className="w-full py-2 rounded-lg bg-blue-600/30 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
               >
-                <div className="flex items-center justify-between font-bold text-[11px]">
-                  <span className="flex items-center gap-1.5">
-                    {auditResult.passed ? (
-                      <CheckCircle2 className="size-3.5 text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className="size-3.5 text-amber-400" />
-                    )}
-                    {auditResult.passed ? "Pre-Audit Cleared (0 Gaps)" : "Gap Remediation Alert"}
-                  </span>
-                  <span className="text-[10px] uppercase font-mono">
-                    {auditResult.passed ? "Queue Eligible" : "Action Required"}
-                  </span>
-                </div>
+                <Sparkles className={`size-3.5 ${isAuditing ? "animate-spin" : ""}`} />
+                {isAuditing ? "Analyzing Compliance via Gemini..." : "Run AI Optical Pre-Audit Check"}
+              </button>
 
-                <div className="grid grid-cols-3 gap-1.5 text-[10px] text-white/80">
-                  <div className="p-1 rounded bg-black/30 text-center">
-                    Adviser: {auditResult.adviserSignature ? "✓ Valid" : "✗ Missing"}
+              {/* Pre-Audit Feedback Results */}
+              {auditResult && (
+                <div
+                  className={`p-3 rounded-lg border text-xs space-y-2 ${
+                    auditResult.passed
+                      ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-300"
+                      : "bg-amber-950/30 border-amber-500/40 text-amber-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-bold text-[11px]">
+                    <span className="flex items-center gap-1.5">
+                      {auditResult.passed ? (
+                        <CheckCircle2 className="size-3.5 text-emerald-400" />
+                      ) : (
+                        <AlertTriangle className="size-3.5 text-amber-400" />
+                      )}
+                      {auditResult.passed ? "Pre-Audit Cleared (0 Gaps)" : "Gap Remediation Alert"}
+                    </span>
+                    <span className="text-[10px] uppercase font-mono">
+                      {auditResult.passed ? "Queue Eligible" : "Action Required"}
+                    </span>
                   </div>
-                  <div className="p-1 rounded bg-black/30 text-center">
-                    Budget: {auditResult.budgetBalanced ? "✓ Reconciled" : "✗ Error"}
-                  </div>
-                  <div className="p-1 rounded bg-black/30 text-center">
-                    Waivers: {auditResult.waiversValid ? "✓ Present" : "✗ Missing"}
-                  </div>
-                </div>
 
-                <p className="text-[10px] leading-relaxed text-white/70">{auditResult.notes}</p>
-              </div>
-            )}
-          </div>
+                  <div className="grid grid-cols-3 gap-1.5 text-[10px] text-white/80">
+                    <div className="p-1 rounded bg-black/30 text-center">
+                      Adviser: {auditResult.adviserSignature ? "✓ Valid" : "✗ Missing"}
+                    </div>
+                    <div className="p-1 rounded bg-black/30 text-center">
+                      Budget: {auditResult.budgetBalanced ? "✓ Reconciled" : "✗ Error"}
+                    </div>
+                    <div className="p-1 rounded bg-black/30 text-center">
+                      Waivers: {auditResult.waiversValid ? "✓ Present" : "✗ Missing"}
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] leading-relaxed text-white/70">{auditResult.notes}</p>
+                </div>
+              )}
+            </div>
 
             <button
               type="submit"
@@ -412,26 +458,27 @@ const handleSubmit = async (e: React.FormEvent) => {
                       <p className="text-amber-200/90">{item.admin_feedback}</p>
                     </div>
                   )}
+
                   {/* ── Cryptographic Clearance Seal & Mobile Syndication (UC-03 / UC-07) ── */}
-                {item.status === "approved" && (
-                  <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5 mt-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
-                        <ShieldCheck className="size-3.5" /> Institutional Clearance Endorsement
-                      </span>
-                      <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                        RA 8792 Signed
-                      </span>
+                  {item.status === "approved" && (
+                    <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5 mt-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
+                          <ShieldCheck className="size-3.5" /> Institutional Clearance Endorsement
+                        </span>
+                        <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                          RA 8792 Signed
+                        </span>
+                      </div>
+                      <div className="font-mono text-[9px] text-white/70 break-all bg-black/40 p-2 rounded border border-white/5">
+                        SHA-256: {item.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-white/60">
+                        <span>Status: Endorsed by Coordinator</span>
+                        <span className="text-emerald-400 font-medium">✓ Live on Campus Mobile App</span>
+                      </div>
                     </div>
-                    <div className="font-mono text-[9px] text-white/70 break-all bg-black/40 p-2 rounded border border-white/5">
-                      SHA-256: {item.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-white/60">
-                      <span>Status: Endorsed by Coordinator</span>
-                      <span className="text-emerald-400 font-medium">✓ Live on Campus Mobile App</span>
-                    </div>
-                  </div>
-                )}
+                  )}
                 </div>
               ))
             )}
