@@ -108,8 +108,18 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!waiverFile) {
-      alert("Gap Remediation Required: Please attach all mandatory participant/parental waivers before routing this proposal to the Coordinator Review Queue.");
+// Strict UC-02 Enforcement Guard: Audit must have been run and cleared
+    if (!auditResult) {
+      alert(
+        "Strict Pre-Audit Required (UC-02): You must attach your compliance packet and click 'Run AI Optical Pre-Audit Check' before submitting to the review queue."
+      );
+      return;
+    }
+
+    if (!auditResult.passed) {
+      alert(
+        "Gap Remediation Required: Your proposal contains unresolved compliance gaps. Please attach all required documentation and re-run the optical pre-audit check."
+      );
       return;
     }
 
@@ -266,7 +276,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
             <div className="p-4 rounded-xl bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Audit Intake (UC-02)
+                  <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Audit Intake
                 </span>
                 <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
                   Gemini Multimodal
@@ -437,11 +447,21 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
 
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full py-3 rounded-xl bg-[#FDB813] hover:bg-[#e0a20f] text-black font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer mt-2"
+              disabled={submitting || !auditResult?.passed}
+              className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all mt-2 ${
+                auditResult?.passed
+                  ? "bg-[#FDB813] hover:bg-[#e0a20f] text-black shadow-lg cursor-pointer"
+                  : "bg-white/10 text-white/40 cursor-not-allowed border border-white/5"
+              }`}
             >
               <Send className="size-3.5" />
-              {submitting ? "Submitting Proposal..." : "Submit Proposal"}
+              {submitting
+                ? "Submitting Proposal..."
+                : !auditResult
+                ? "Run AI Pre-Audit Above to Enable Submission"
+                : !auditResult.passed
+                ? "Resolve Gaps & Re-run Audit to Submit"
+                : "Submit Proposal to Coordinator Queue"}
             </button>
           </form>
         </div>
