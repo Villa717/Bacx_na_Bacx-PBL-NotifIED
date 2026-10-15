@@ -87,9 +87,7 @@ export default function CoordinatorView() {
       (trimmedEmail.endsWith("@apc.edu.ph") && trimmedPassword.length >= 6);
 
     if (!isValid) {
-      setErrorMessage(
-        "Invalid email or password"
-      );
+      setErrorMessage("Invalid email or password");
       return;
     }
 
@@ -231,7 +229,7 @@ export default function CoordinatorView() {
         <div className="flex items-center gap-2">
           <span className="text-slate-400">Portal:</span>
           <span className="font-bold text-blue-400 uppercase tracking-wide">
-            Admin Coordinator Portal
+            NotifiED Admin Portal | Tenant: Asia Pacific College (Pilot Sandbox)
           </span>
         </div>
 
@@ -264,26 +262,76 @@ function getLeadTimeBadge(dateStr: string) {
   return { text: `🟢 In ${Math.round(diffHours / 24)}d`, isUrgent: false };
 }
 
-const URGENCY_TAGS: Record<string, { label: string; style: string }> = {
-  P1: { label: "P1 URGENT", style: "bg-red-500/20 text-red-400 border border-red-500/40" },
-  P2: { label: "P2 MED", style: "bg-amber-500/20 text-amber-400 border border-amber-500/40" },
-  P3: { label: "P3 STD", style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" },
-};
+// AI Dynamic Urgency Triage Helper (UC-03 / Resolves FIFO Bottlenecks)
+function computeDynamicUrgency(dateStr: string | null): {
+  tier: "P1" | "P2" | "P3";
+  label: string;
+  style: string;
+} {
+  if (!dateStr) {
+    return {
+      tier: "P3",
+      label: "P3 STD",
+      style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
+    };
+  }
+
+  const target = new Date(dateStr).getTime();
+  const now = new Date().getTime();
+  const diffHours = (target - now) / (1000 * 60 * 60);
+
+  // P1: Imminent events within 96 hours (4 days) or overdue/passed requiring resolution
+  if (diffHours <= 96) {
+    return {
+      tier: "P1",
+      label: "P1 HIGH",
+      style: "bg-red-500/20 text-red-400 border border-red-500/40",
+    };
+  }
+
+  // P2: Moderate operational horizon (between 4 days and 14 days)
+  if (diffHours <= 336) {
+    return {
+      tier: "P2",
+      label: "P2 MED",
+      style: "bg-amber-500/20 text-amber-400 border border-amber-500/40",
+    };
+  }
+
+  // P3: Standard review scheduled well in advance (> 2 weeks)
+  return {
+    tier: "P3",
+    label: "P3 STD",
+    style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40",
+  };
+}
 
 export function CoordinatorInterface() {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [triageTier, setTriageTier] = useState<"ALL" | "P1" | "P2" | "P3">("ALL");
-
-// Dynamic urgency queue filter
-const displayedEvents = events.filter((e) => {
-  if (triageTier === "ALL") return true;
-  return (e.urgency_tier || "P3") === triageTier;
-});
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [revisionFeedback, setRevisionFeedback] = useState("");
   const [showRevisionModal, setShowRevisionModal] = useState(false);
+
+  // Dynamic triage calculation & Priority sorting (P1 first, then P2, then P3, then closest date)
+  const triagedEvents = events
+    .map((item) => ({
+      ...item,
+      calculatedUrgency: computeDynamicUrgency(item.event_date),
+    }))
+    .filter((item) => {
+      if (triageTier === "ALL") return true;
+      return item.calculatedUrgency.tier === triageTier;
+    })
+    .sort((a, b) => {
+      const priorityOrder: Record<string, number> = { P1: 1, P2: 2, P3: 3 };
+      const diffPriority =
+        priorityOrder[a.calculatedUrgency.tier] - priorityOrder[b.calculatedUrgency.tier];
+      if (diffPriority !== 0) return diffPriority;
+      return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
+    });
 
   const fetchQueue = async () => {
     setLoading(true);
@@ -361,43 +409,43 @@ const displayedEvents = events.filter((e) => {
         <div className="p-4 border-b border-white/10 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-      <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-        AI Dynamic Queue Triage
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
-          UC-03
-        </span>
-      </h1>
-      <p className="text-xs text-[#8D99AE] mt-0.5">
-        {displayedEvents.length} proposal{displayedEvents.length === 1 ? "" : "s"} in queue
-      </p>
-    </div>
-    <button
-      onClick={fetchQueue}
-      title="Refresh from Supabase"
-      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
-    >
-      <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-    </button>
-  </div>
+              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+                AI Dynamic Queue Triage
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
+                  UC-03
+                </span>
+              </h1>
+              <p className="text-xs text-[#8D99AE] mt-0.5">
+                {triagedEvents.length} proposal{triagedEvents.length === 1 ? "" : "s"} in queue
+              </p>
+            </div>
+            <button
+              onClick={fetchQueue}
+              title="Refresh from Supabase"
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
 
-  {/* Urgency Filter Tabs */}
-  <div className="grid grid-cols-4 gap-1 p-1 bg-[#090F24] rounded-lg border border-white/5 text-[11px]">
-    {(["ALL", "P1", "P2", "P3"] as const).map((tier) => (
-      <button
-        key={tier}
-        type="button"
-        onClick={() => setTriageTier(tier)}
-        className={`py-1 rounded font-semibold transition text-center cursor-pointer ${
-          triageTier === tier
-            ? "bg-blue-600 text-white shadow-sm"
-            : "text-[#8D99AE] hover:text-white hover:bg-white/5"
-        }`}
-      >
-        {tier}
-      </button>
-    ))}
-  </div>
-</div>
+          {/* Urgency Filter Tabs */}
+          <div className="grid grid-cols-4 gap-1 p-1 bg-[#090F24] rounded-lg border border-white/5 text-[11px]">
+            {(["ALL", "P1", "P2", "P3"] as const).map((tier) => (
+              <button
+                key={tier}
+                type="button"
+                onClick={() => setTriageTier(tier)}
+                className={`py-1 rounded font-semibold transition text-center cursor-pointer ${
+                  triageTier === tier
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-[#8D99AE] hover:text-white hover:bg-white/5"
+                }`}
+              >
+                {tier}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {loading && events.length === 0 && (
@@ -415,10 +463,11 @@ const displayedEvents = events.filter((e) => {
             </div>
           )}
 
-          {displayedEvents.map((item) => {
+          {triagedEvents.map((item) => {
             const isSelected = selectedEvent?.event_id === item.event_id;
             const leadTime = getLeadTimeBadge(item.event_date);
-            const urgency = URGENCY_TAGS[item.urgency_tier || "P3"] || URGENCY_TAGS.P3;
+            const urgency = item.calculatedUrgency;
+
             return (
               <div
                 key={item.event_id}
@@ -429,11 +478,11 @@ const displayedEvents = events.filter((e) => {
                     : "bg-[#16203D] border-white/5 hover:border-white/20"
                 }`}
               >
-{/* Top Row: Title + AI Urgency Badge & Status Badge */}
+                {/* Top Row: Title + AI Urgency Badge & Status Badge */}
                 <div className="flex items-start justify-between gap-2 mb-1.5">
                   <h3 className="font-semibold text-sm truncate text-white">{item.title}</h3>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {/* Urgency Badge (P1 / P2 / P3) */}
+                    {/* Dynamic Urgency Badge (P1 / P2 / P3) */}
                     <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${urgency.style}`}>
                       {urgency.label}
                     </span>
@@ -461,7 +510,6 @@ const displayedEvents = events.filter((e) => {
                     {leadTime.text}
                   </span>
                 </div>
-               
 
                 <div className="flex items-center gap-3 text-[11px] text-white/60 mb-2.5">
                   <span className="flex items-center gap-1">
@@ -534,52 +582,55 @@ const displayedEvents = events.filter((e) => {
                 </div>
               </div>
             </div>
+
             {/* ── AI Multimodal Pre-Audit Compliance Inspector (UC-02) ── */}
-          <div className="bg-[#16203D] border border-blue-500/30 rounded-xl p-5 space-y-3.5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="flex size-2 rounded-full bg-emerald-400 animate-pulse" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                  AI Pre-Audit Compliance Inspector (Gemini Multimodal Engine)
-                </h3>
-              </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                UC-02 Validated
-              </span>
-            </div>
-
-            {/* Compliance Status Verification Chips */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
-                <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                  ✓ Signature Detected
+            <div className="bg-[#16203D] border border-blue-500/30 rounded-xl p-5 space-y-3.5">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                    AI Pre-Audit Compliance Inspector (Gemini Multimodal Engine)
+                  </h3>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                  UC-02 Validated
                 </span>
               </div>
 
-              <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                <span className="text-[10px] text-[#8D99AE]">Budget Arithmetic</span>
-                <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                  ✓ Math Reconciled
-                </span>
+              {/* Compliance Status Verification Chips */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
+                  <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
+                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                    ✓ Signature Detected
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
+                  <span className="text-[10px] text-[#8D99AE]">Budget Arithmetic</span>
+                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                    ✓ Math Reconciled
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
+                  <span className="text-[10px] text-[#8D99AE]">Mandatory Waivers</span>
+                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                    ✓ Waivers Attached
+                  </span>
+                </div>
               </div>
 
-              <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                <span className="text-[10px] text-[#8D99AE]">Mandatory Waivers</span>
-                <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                  ✓ Waivers Attached
-                </span>
+              {/* AI Synthesis & Gap Analysis Notes */}
+              <div className="p-3.5 rounded-lg bg-[#090F24] border border-white/5 text-xs space-y-1">
+                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                  Pre-Audit Gap Analysis:
+                </div>
+                <p className="text-white/80 leading-relaxed text-[11px]">
+                  All required clearance attachments, parent consent forms, and physical adviser endorsements were verified optically via Gemini Multimodal. Requisition rows balance with requested funds. Proposal is clear for administrative endorsement.
+                </p>
               </div>
             </div>
-
-            {/* AI Synthesis & Gap Analysis Notes */}
-            <div className="p-3.5 rounded-lg bg-[#090F24] border border-white/5 text-xs space-y-1">
-              <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Pre-Audit Gap Analysis:</div>
-              <p className="text-white/80 leading-relaxed text-[11px]">
-                All required clearance attachments, parent consent forms, and physical adviser endorsements were verified optically via Gemini Multimodal. Requisition rows balance with requested funds. Proposal is clear for administrative endorsement.
-              </p>
-            </div>
-          </div>
 
             {/* Description */}
             <div>
@@ -618,6 +669,7 @@ const displayedEvents = events.filter((e) => {
               </div>
             </div>
           </div>
+
           {/* ── Cryptographic Non-Repudiation Ledger (UC-03 / RA 8792) ── */}
           {selectedEvent.status === "approved" && (
             <div className="mx-6 mb-3 p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-2">
@@ -637,7 +689,8 @@ const displayedEvents = events.filter((e) => {
                 <span className="text-emerald-400 font-medium">✓ Syndicated to Events Mobile App</span>
               </div>
             </div>
-          )}   
+          )}
+
           {/* Fixed Decision Footer Actions */}
           <div className="p-5 border-t border-white/10 bg-[#0E1733] flex items-center justify-end gap-3">
             <button
