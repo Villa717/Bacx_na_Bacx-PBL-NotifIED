@@ -13,10 +13,20 @@ import {
   Paperclip,
   AlertTriangle,
   X,
+  Eye,
+  EyeOff,
+  LogOut,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
+  // Authentication states
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +54,39 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
     waiversValid: boolean;
     notes: string;
   } | null>(null);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage("");
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
+      setErrorMessage("Please enter both email and password.");
+      return;
+    }
+
+    // Accepts demo facilitator credentials or any valid institutional @apc.edu.ph account
+    const isValid =
+      (trimmedEmail === "facilitator@apc.edu.ph" && trimmedPassword === "facilitator123") ||
+      (trimmedEmail.endsWith("@apc.edu.ph") && trimmedPassword.length >= 6);
+
+    if (!isValid) {
+      setErrorMessage("Invalid credentials. Try facilitator@apc.edu.ph / facilitator123");
+      return;
+    }
+
+    setIsLoggedIn(true);
+    setPassword("");
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setPassword("");
+    setErrorMessage("");
+    if (onLogout) onLogout();
+  };
 
   const runPreAuditScan = () => {
     if (!apfFile || !budgetFile) {
@@ -86,29 +129,31 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
 
   // 2. Realtime Listener: Updates status immediately when Admin approves/rejects
   useEffect(() => {
-    fetchMyEvents();
+    if (isLoggedIn) {
+      fetchMyEvents();
 
-    const channel = supabase
-      .channel("facilitator-events-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "events" },
-        () => {
-          fetchMyEvents();
-        }
-      )
-      .subscribe();
+      const channel = supabase
+        .channel("facilitator-events-sync")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "events" },
+          () => {
+            fetchMyEvents();
+          }
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isLoggedIn]);
 
   // 3. Submit Event to Database
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-// Strict UC-02 Enforcement Guard: Audit must have been run and cleared
+    // Strict UC-02 Enforcement Guard: Audit must have been run and cleared
     if (!auditResult) {
       alert(
         "Strict Pre-Audit Required (UC-02): You must attach your compliance packet and click 'Run AI Optical Pre-Audit Check' before submitting to the review queue."
@@ -159,6 +204,134 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
     setSubmitting(false);
   };
 
+  // ── Split-Screen Landing & Auth View ──
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen w-full bg-[#080E21] flex items-center justify-center p-4 md:p-8 font-sans text-white">
+        {/* Main Split-Screen Container Card */}
+        <div className="w-full max-w-5xl bg-[#0D152D] rounded-3xl overflow-hidden shadow-2xl border border-white/5 grid grid-cols-1 lg:grid-cols-12 min-h-[620px]">
+          
+          {/* ── LEFT COLUMN: Login Form (5 cols) ── */}
+          <div className="lg:col-span-5 p-8 md:p-12 flex flex-col justify-between bg-[#0B132B]">
+            <div>
+              {/* Brand Header */}
+              <div className="flex items-center gap-2.5 mb-10">
+                <span className="text-3xl font-black text-[#FFD000] tracking-tight">N</span>
+                <span className="text-2xl font-black text-[#FFD000] tracking-tight">NotifiED</span>
+              </div>
+
+              {/* Form Heading */}
+              <div className="mb-8 text-left">
+                <h1 className="text-2xl font-bold text-white mb-1">Login</h1>
+                <p className="text-xs text-[#8D99AE]">Enter your facilitator credentials</p>
+              </div>
+
+              {/* Error Alert */}
+              {errorMessage && (
+                <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {/* Credentials Form */}
+              <form onSubmit={handleLogin} className="space-y-6 text-left">
+                {/* Email Input */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-[#8D99AE] block">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="facilitator@apc.edu.ph"
+                    className="w-full pb-2 bg-transparent border-b border-white/20 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition-colors"
+                  />
+                </div>
+
+                {/* Password Input */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-[#8D99AE] block">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full pb-2 bg-transparent border-b border-white/20 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-0 bottom-2 text-white/40 hover:text-white transition cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <button
+                    type="button"
+                    className="text-[11px] text-[#8D99AE] hover:text-[#FFD000] transition cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+
+                {/* Action Button */}
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-xl bg-[#FDB813] hover:bg-[#e5a60e] text-black font-bold text-xs tracking-wide transition shadow-md hover:shadow-lg cursor-pointer mt-4"
+                >
+                  Enter Workspace
+                </button>
+              </form>
+            </div>
+
+            {/* Subtle Footer Note */}
+            <div className="mt-8 text-[11px] text-[#8D99AE]/50">
+              NotifiED • Asia Pacific College
+            </div>
+          </div>
+
+          {/* ── RIGHT COLUMN: Branded Canvas (7 cols) ── */}
+          <div className="lg:col-span-7 bg-gradient-to-br from-[#1C2574] via-[#161F55] to-[#0E1538] p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
+            {/* Background Organic Glow Shapes */}
+            <div className="absolute -top-16 -right-16 size-72 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 right-0 size-80 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Header Content */}
+            <div className="relative z-10 text-left max-w-md">
+              <h2 className="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-2">
+                Welcome to the <br /> Facilitator Workspace
+              </h2>
+              <p className="text-xs md:text-sm text-blue-200/80 leading-relaxed">
+                Draft, pre-audit, and submit campus event proposals for clearance.
+              </p>
+            </div>
+
+            {/* Dual Actor Illustration Area */}
+            <div className="relative z-10 flex items-center justify-center mt-6">
+              <img
+                src="/assets/auth-illustration.png"
+                alt="Facilitator Workspace Workflow"
+                className="w-full max-h-[340px] object-contain drop-shadow-2xl"
+                onError={(e) => {
+                  // Fallback in case illustration file is still being uploaded
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            </div>
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  // ── Authenticated Facilitator Portal ──
   return (
     <div className="h-full w-full bg-[#0B132B] text-white flex flex-col overflow-y-auto">
       {/* Subheader */}
@@ -167,13 +340,22 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
           <h1 className="text-base font-bold tracking-tight">Event Proposal Portal</h1>
           <p className="text-xs text-[#8D99AE]">Submit event proposals and track your clearance approvals in real-time.</p>
         </div>
-        <button
-          onClick={fetchMyEvents}
-          className="p-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors flex items-center gap-2 text-xs cursor-pointer"
-        >
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchMyEvents}
+            className="p-2 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors flex items-center gap-2 text-xs cursor-pointer"
+          >
+            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-2 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center gap-1.5 text-xs cursor-pointer"
+          >
+            <LogOut className="size-3.5" />
+            Exit
+          </button>
+        </div>
       </div>
 
       {/* Main Grid */}
@@ -272,7 +454,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
               />
             </div>
 
-            {/* ── Clearance Packet & AI Pre-Audit Verification (UC-02) ── */}
+            {/* ── Clearance Packet & AI Pre-Audit Verification ── */}
             <div className="p-4 rounded-xl bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
