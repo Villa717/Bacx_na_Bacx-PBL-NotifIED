@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { FacilitatorInterface } from "./components/FacilitatorInterface";
 import { Eye, EyeOff, AlertCircle } from "lucide-react";
-import facilitatorBg from "../assets/facilitator-bg.svg";
+import facilitatorBg from "../assets/facilitator-bg.jpeg";
 
 const VALID_FACILITATOR_EMAIL = "facilitator@organization.edu";
 const VALID_PASSWORD = "password123";
@@ -131,7 +131,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Credentials Input Form */}
+            {/* Form Controls */}
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
@@ -170,7 +170,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Remember & Password Help */}
               <div className="flex items-center justify-between text-xs pt-1">
                 <label className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer select-none">
                   <input
@@ -186,7 +185,6 @@ export default function App() {
                 </span>
               </div>
 
-              {/* Action Button */}
               <button
                 type="submit"
                 className="w-full py-3 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition shadow-lg cursor-pointer mt-4"
@@ -195,7 +193,6 @@ export default function App() {
               </button>
             </form>
 
-            {/* Terminal Footprint */}
             <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/50">
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 bg-[#FFD000]"></span>
