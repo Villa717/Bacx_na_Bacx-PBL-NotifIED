@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import adminBg from "../assets/admin-bg.jpg";
 
 // Designated prototype coordinator credentials (or accept any valid @apc.edu.ph staff/admin email)
 const VALID_ADMIN_EMAIL = "coordinator@apc.edu.ph";
@@ -81,13 +82,13 @@ export default function CoordinatorView() {
     }
 
     // 2. Prototype Admin Credential Verification
-    // Accept either the default demo coordinator credentials or any @apc.edu.ph staff email
     const isValid =
       (trimmedEmail === VALID_ADMIN_EMAIL && trimmedPassword === VALID_ADMIN_PASSWORD) ||
+      (trimmedEmail === "admin@apc.edu.ph" && trimmedPassword === "adminpassword123") ||
       (trimmedEmail.endsWith("@apc.edu.ph") && trimmedPassword.length >= 6);
 
     if (!isValid) {
-      setErrorMessage("Invalid email or password");
+      setErrorMessage("Invalid credentials. Try coordinator@apc.edu.ph / adminpassword123");
       return;
     }
 
@@ -113,111 +114,139 @@ export default function CoordinatorView() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen w-full bg-[#EAEFF5] flex flex-col items-center justify-center p-4 font-sans text-slate-900">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white shadow-xs border border-slate-200 text-slate-600 text-xs font-semibold mb-6">
-          <span className="size-2 rounded-full bg-blue-600"></span>
-          NOTIFIED: ADMIN COORDINATOR
-        </div>
-
-        <div className="w-full max-w-[420px] bg-white rounded-3xl p-8 shadow-xl border border-slate-100 text-center">
-          <h1 className="text-2xl font-serif font-bold text-slate-900 mb-1">Admin Login</h1>
-          <p className="text-xs text-slate-500 mb-6">
-            Review, clear, and publish campus event proposals.
-          </p>
-
-          {errorMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs text-left flex items-start gap-2">
-              <AlertCircle className="size-4 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
+      <div
+        className="min-h-screen w-full relative flex flex-col justify-between p-6 md:p-10 font-sans text-white bg-[#D97706] bg-cover bg-center overflow-x-hidden"
+        style={{ backgroundImage: `url(${adminBg})` }}
+      >
+        {/* ── Top Header Navigation ── */}
+        <header className="w-full flex items-center justify-between z-10 shrink-0">
+          {/* Brand Mark with Accent N */}
+          <div className="flex items-center gap-3">
+            <div className="size-9 bg-[#0B132B] flex items-center justify-center font-black text-[#FFD000] text-lg border border-white/10 shadow-md">
+              N
             </div>
-          )}
-
-          <form onSubmit={handleLogin} className="text-left space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Email</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="coordinator@apc.edu.ph"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0E1733]"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0E1733]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
+            <div className="text-left">
+              <div className="flex items-center gap-2">
+                <span className="font-black text-lg text-white tracking-tight">NotifiED</span>
+                <span className="bg-[#0B132B] text-[#FFD000] text-[10px] font-mono font-bold px-2 py-0.5 uppercase tracking-wider border border-white/10">
+                  ADMIN
+                </span>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-slate-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                />
-                Remember Me
-              </label>
-              <span className="text-blue-600 hover:underline font-medium cursor-pointer">
-                Forgot Password
-              </span>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 rounded-xl bg-[#0E1733] hover:bg-[#16203D] text-white text-sm font-bold transition-colors cursor-pointer mt-2"
-            >
-              Sign In to Coordinator Portal
-            </button>
-          </form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200"></div>
-            </div>
-            <div className="relative flex justify-center text-[11px] uppercase">
-              <span className="bg-white px-2 text-slate-400">Or continue with</span>
+              <p className="text-[11px] text-white/80 font-medium">Asia Pacific College Enterprise System</p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              // Simulated Microsoft SSO for rapid evaluation
-              setEmail("coordinator@apc.edu.ph");
-              setIsLoggedIn(true);
-            }}
-            className="w-full py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors cursor-pointer"
-          >
-            <svg className="size-4" viewBox="0 0 21 21">
-              <path fill="#f25022" d="M1 1h9v9H1z" />
-              <path fill="#00a4ef" d="M1 11h9v9H1z" />
-              <path fill="#7fba00" d="M11 1h9v9H11z" />
-              <path fill="#ffb900" d="M11 11h9v9H11z" />
-            </svg>
-            Sign in with Microsoft
-          </button>
-        </div>
+          {/* Institutional Telemetry Status Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B] border border-white/15 text-white text-xs font-semibold shadow-md">
+            <span className="size-2 bg-emerald-400"></span>
+            NOTIFIED: ADMIN COORDINATOR
+          </div>
+        </header>
 
-        <p className="text-xs text-slate-400 mt-8">© 2026 All rights reserved.</p>
+        {/* ── Main Left-Weighted Auth Terminal ── */}
+        <main className="w-full my-auto py-8 z-10 flex items-center justify-start lg:pl-16">
+          <div className="w-full max-w-[440px] bg-[#0E1528] border border-white/10 shadow-2xl p-8 md:p-10 text-left">
+            
+            {/* Terminal Meta Header */}
+            <div className="flex items-center justify-between text-[10px] font-mono tracking-widest text-[#FFD000] mb-3 uppercase">
+              <span>AUTHORIZED CLEARANCE ACCESS</span>
+              <span className="text-white/40">v2.4 SECURE</span>
+            </div>
+
+            {/* Title & Description */}
+            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 tracking-tight">
+              Admin Login
+            </h1>
+            <p className="text-xs text-[#8D99AE] mb-6">
+              Review, clear, and publish campus event proposals.
+            </p>
+
+            {/* Error Feedback */}
+            {errorMessage && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Credentials Input Form */}
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
+                  INSTITUTIONAL EMAIL
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="coordinator@apc.edu.ph"
+                  className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
+                  PASSWORD
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Remember & Password Help */}
+              <div className="flex items-center justify-between text-xs pt-1">
+                <label className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="bg-[#080D1A] border-white/20 text-[#FFD000] focus:ring-0 cursor-pointer"
+                  />
+                  Remember Me
+                </label>
+                <span className="text-[#FFD000] hover:underline cursor-pointer text-xs">
+                  Forgot Password?
+                </span>
+              </div>
+
+              {/* Yellow Action Button */}
+              <button
+                type="submit"
+                className="w-full py-3 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition shadow-lg cursor-pointer mt-4"
+              >
+                SIGN IN TO COORDINATOR PORTAL →
+              </button>
+            </form>
+
+            {/* Terminal Footprint */}
+            <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/50">
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 bg-[#FFD000]"></span>
+                RA 8792 Authentication
+              </span>
+              <span>Asia Pacific College</span>
+            </div>
+
+          </div>
+        </main>
+
+        {/* Empty Footer Spacer */}
+        <div className="h-4 z-10 shrink-0"></div>
       </div>
     );
   }
@@ -583,7 +612,7 @@ export function CoordinatorInterface() {
               </div>
             </div>
 
-            {/* ── AI Multimodal Pre-Audit Compliance Inspector (UC-02) ── */}
+            {/* AI Multimodal Pre-Audit Compliance Inspector (UC-02) */}
             <div className="bg-[#16203D] border border-blue-500/30 rounded-xl p-5 space-y-3.5">
               <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div className="flex items-center gap-2">
@@ -597,7 +626,6 @@ export function CoordinatorInterface() {
                 </span>
               </div>
 
-              {/* Compliance Status Verification Chips */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="p-3 rounded-lg bg-[#0D1836] border border-white/5 flex flex-col gap-1">
                   <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
@@ -621,7 +649,6 @@ export function CoordinatorInterface() {
                 </div>
               </div>
 
-              {/* AI Synthesis & Gap Analysis Notes */}
               <div className="p-3.5 rounded-lg bg-[#090F24] border border-white/5 text-xs space-y-1">
                 <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
                   Pre-Audit Gap Analysis:
@@ -670,7 +697,7 @@ export function CoordinatorInterface() {
             </div>
           </div>
 
-          {/* ── Cryptographic Non-Repudiation Ledger (UC-03 / RA 8792) ── */}
+          {/* Cryptographic Non-Repudiation Ledger (UC-03 / RA 8792) */}
           {selectedEvent.status === "approved" && (
             <div className="mx-6 mb-3 p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-2">
               <div className="flex items-center justify-between">
