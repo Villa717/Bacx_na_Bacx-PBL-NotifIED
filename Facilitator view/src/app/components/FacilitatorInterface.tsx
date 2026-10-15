@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Paperclip,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
@@ -272,73 +273,115 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 </span>
               </div>
 
-              {/* Real Interactive File Pickers */}
+              {/* Real Interactive File Pickers with Removal Capability */}
               <div className="space-y-2 text-xs text-[#8D99AE]">
                 {/* APF Form File Picker */}
-                <label className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition cursor-pointer">
-                  <span className="flex items-center gap-2 text-[11px] text-white/90">
-                    <Paperclip className="size-3.5 text-[#FDB813]" />
-                    <span>Signed APF Form *</span>
-                  </span>
-                  <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[170px]">
-                    {apfFile ? apfFile.name : "Choose PDF / Image"}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".pdf,image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        setApfFile(e.target.files[0]);
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition">
+                  <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
+                    <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
+                    <span className="shrink-0">Signed APF Form *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono truncate ml-auto mr-2">
+                      {apfFile ? apfFile.name : "Choose PDF / Image"}
+                    </span>
+                    <input
+                      key={apfFile ? apfFile.name : "apf-empty"}
+                      type="file"
+                      accept=".pdf,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          setApfFile(e.target.files[0]);
+                          setAuditResult(null);
+                        }
+                      }}
+                    />
+                  </label>
+                  {apfFile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setApfFile(null);
                         setAuditResult(null);
-                      }
-                    }}
-                  />
-                </label>
+                      }}
+                      className="text-white/40 hover:text-red-400 transition p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                      title="Remove attachment"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
 
                 {/* Budget Itemization File Picker */}
-                <label className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition cursor-pointer">
-                  <span className="flex items-center gap-2 text-[11px] text-white/90">
-                    <Paperclip className="size-3.5 text-[#FDB813]" />
-                    <span>Budget Breakdown *</span>
-                  </span>
-                  <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[170px]">
-                    {budgetFile ? budgetFile.name : "Choose XLSX / PDF"}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        setBudgetFile(e.target.files[0]);
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition">
+                  <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
+                    <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
+                    <span className="shrink-0">Budget Breakdown *</span>
+                    <span className="text-[10px] text-emerald-400 font-mono truncate ml-auto mr-2">
+                      {budgetFile ? budgetFile.name : "Choose XLSX / PDF"}
+                    </span>
+                    <input
+                      key={budgetFile ? budgetFile.name : "budget-empty"}
+                      type="file"
+                      accept=".xlsx,.xls,.pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          setBudgetFile(e.target.files[0]);
+                          setAuditResult(null);
+                        }
+                      }}
+                    />
+                  </label>
+                  {budgetFile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBudgetFile(null);
                         setAuditResult(null);
-                      }
-                    }}
-                  />
-                </label>
+                      }}
+                      className="text-white/40 hover:text-red-400 transition p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                      title="Remove attachment"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
 
                 {/* Mandatory Waivers File Picker */}
-                <label className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition cursor-pointer">
-                  <span className="flex items-center gap-2 text-[11px] text-white/90">
-                    <Paperclip className="size-3.5 text-[#FDB813]" />
-                    <span>Participant Waivers (If Off-Campus)</span>
-                  </span>
-                  <span className="text-[10px] text-emerald-400 font-mono truncate max-w-[170px]">
-                    {waiverFile ? waiverFile.name : "Choose PDF / ZIP"}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".pdf,.zip,image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        setWaiverFile(e.target.files[0]);
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#16203D] border border-white/5 hover:border-white/20 transition">
+                  <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
+                    <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
+                    <span className="shrink-0">Participant Waivers (If Off-Campus)</span>
+                    <span className="text-[10px] text-emerald-400 font-mono truncate ml-auto mr-2">
+                      {waiverFile ? waiverFile.name : "Choose PDF / ZIP"}
+                    </span>
+                    <input
+                      key={waiverFile ? waiverFile.name : "waiver-empty"}
+                      type="file"
+                      accept=".pdf,.zip,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          setWaiverFile(e.target.files[0]);
+                          setAuditResult(null);
+                        }
+                      }}
+                    />
+                  </label>
+                  {waiverFile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWaiverFile(null);
                         setAuditResult(null);
-                      }
-                    }}
-                  />
-                </label>
+                      }}
+                      className="text-white/40 hover:text-red-400 transition p-1 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                      title="Remove attachment"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Run Pre-Audit Button */}
