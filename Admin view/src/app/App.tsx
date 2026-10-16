@@ -237,7 +237,7 @@ export default function CoordinatorView() {
             <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/50">
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 bg-[#FFD000]"></span>
-                RA 8792 Authentication
+                Campus Clearance Portal
               </span>
               <span>Asia Pacific College</span>
             </div>
@@ -441,7 +441,7 @@ export function CoordinatorInterface() {
               <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
                 AI Dynamic Queue Triage
                 <span className="text-[10px] px-1.5 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
-                  UC-03
+                 ._.
                 </span>
               </h1>
               <p className="text-xs text-[#8D99AE] mt-0.5">
@@ -618,11 +618,11 @@ export function CoordinatorInterface() {
                 <div className="flex items-center gap-2">
                   <span className="flex size-2 rounded-none bg-emerald-400 animate-pulse" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                    AI Pre-Audit Compliance Inspector (Gemini Multimodal Engine)
+                    AI Pre-Audit Compliance Inspection
                   </h3>
                 </div>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  UC-02 Validated
+                  Validated
                 </span>
               </div>
 
