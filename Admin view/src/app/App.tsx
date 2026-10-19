@@ -439,7 +439,7 @@ export function CoordinatorInterface() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-                AI Dynamic Queue Triage
+                Event Queueing
                 <span className="text-[10px] px-1.5 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
                  ._.
                 </span>
@@ -618,7 +618,7 @@ export function CoordinatorInterface() {
                 <div className="flex items-center gap-2">
                   <span className="flex size-2 rounded-none bg-emerald-400 animate-pulse" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                    AI Pre-Audit Compliance Inspection
+                    Pre-Check Compliance Inspection
                   </h3>
                 </div>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30">
@@ -635,9 +635,9 @@ export function CoordinatorInterface() {
                 </div>
 
                 <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Budget Arithmetic</span>
+                  <span className="text-[10px] text-[#8D99AE]">Mandatory Requirements</span>
                   <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    ✓ Math Reconciled
+                    ✓ Requirements Met
                   </span>
                 </div>
 
@@ -651,7 +651,7 @@ export function CoordinatorInterface() {
 
               <div className="p-3.5 rounded-none bg-[#090F24] border border-white/5 text-xs space-y-1">
                 <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                  Pre-Audit Gap Analysis:
+                  Pre-Check Gap Analysis:
                 </div>
                 <p className="text-white/80 leading-relaxed text-[11px]">
                   All required clearance attachments, parent consent forms, and physical adviser endorsements were verified optically via Gemini Multimodal. Requisition rows balance with requested funds. Proposal is clear for administrative endorsement.
