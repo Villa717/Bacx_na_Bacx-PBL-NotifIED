@@ -120,7 +120,7 @@ export default function App() {
               Facilitator Login
             </h1>
             <p className="text-xs text-[#8D99AE] mb-6">
-              Draft, pre-audit, and submit campus event proposals.
+              Draft, pre-check, and submit campus event proposals.
             </p>
 
             {/* Error Alert */}
