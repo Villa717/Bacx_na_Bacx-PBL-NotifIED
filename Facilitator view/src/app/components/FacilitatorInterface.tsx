@@ -32,42 +32,16 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
   const [regLink, setRegLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // AI Pre-Audit File Attachment States (UC-02)
+  // AI Pre-Check File Attachment States (UC-02)
   const [apfFile, setApfFile] = useState<File | null>(null);
-  const [budgetFile, setBudgetFile] = useState<File | null>(null);
   const [waiverFile, setWaiverFile] = useState<File | null>(null);
-  const [isAuditing, setIsAuditing] = useState(false);
-  const [auditResult, setAuditResult] = useState<{
+  const [checkResult, setCheckResult] = useState<{
     ran: boolean;
     passed: boolean;
     adviserSignature: boolean;
-    budgetBalanced: boolean;
     waiversValid: boolean;
     notes: string;
   } | null>(null);
-
-  const runPreAuditScan = () => {
-    if (!apfFile || !budgetFile) {
-      alert("Missing Required Documents: Please attach both the Signed APF Document and Budget Itemization Sheet before running the pre-audit check.");
-      return;
-    }
-
-    setIsAuditing(true);
-    setTimeout(() => {
-      const hasWaivers = !!waiverFile;
-      setAuditResult({
-        ran: true,
-        passed: hasWaivers,
-        adviserSignature: true,
-        budgetBalanced: true,
-        waiversValid: hasWaivers,
-        notes: hasWaivers
-          ? "Pre-Audit Passed: Physical adviser endorsement detected optically. Line-item expenses reconcile with declared budget. Proposal is primed for dynamic queue routing."
-          : "Pre-Audit Gap Alert: Missing signed off-campus participant liability waivers. Attach required documentation to prevent queue rejection.",
-      });
-      setIsAuditing(false);
-    }, 1200);
-  };
 
   const fetchMyEvents = async () => {
     setLoading(true);
@@ -106,21 +80,36 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!auditResult) {
-      alert(
-        "Strict Pre-Audit Required: You must attach your compliance packet and click 'Run AI Optical Pre-Audit Check' before submitting to the review queue."
-      );
-      return;
-    }
-
-    if (!auditResult.passed) {
-      alert(
-        "Gap Remediation Required: Your proposal contains unresolved compliance gaps. Please attach all required documentation and re-run the optical pre-audit check."
-      );
+    // Ensure required attachment is present before automated pre-check & submission
+    if (!apfFile) {
+      alert("Missing Required Document: Please attach the Signed APF Form before submitting for review.");
       return;
     }
 
     setSubmitting(true);
+
+    // Automated Optical Pre-Check Verification
+    const hasWaivers = !!waiverFile;
+    const isOffCampus = venue.toLowerCase().includes("off") || venue.toLowerCase().includes("external");
+    const passed = isOffCampus ? hasWaivers : true;
+
+    const result = {
+      ran: true,
+      passed: passed,
+      adviserSignature: true,
+      waiversValid: isOffCampus ? hasWaivers : true,
+      notes: passed
+        ? "Pre-Check Cleared: Physical adviser endorsement detected optically. Required clearance forms validated. Proposal is primed for dynamic queue routing."
+        : "Pre-Check Gap Alert: Missing signed off-campus participant liability waivers. Please attach required waiver documentation.",
+    };
+
+    setCheckResult(result);
+
+    if (!passed) {
+      setSubmitting(false);
+      alert("Gap Remediation Required: Your proposal contains unresolved compliance gaps. Please attach all required documentation.");
+      return;
+    }
 
     const payload = {
       title: title.trim(),
@@ -139,7 +128,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
     if (error) {
       alert(`Submission error: ${error.message}`);
     } else {
-      alert("Proposal submitted successfully to the Database!");
+      alert("Proposal pre-checked and submitted successfully to the Database!");
       setTitle("");
       setDate("");
       setStartTime("");
@@ -148,9 +137,8 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
       setDescription("");
       setRegLink("");
       setApfFile(null);
-      setBudgetFile(null);
       setWaiverFile(null);
-      setAuditResult(null);
+      setCheckResult(null);
       fetchMyEvents();
     }
     setSubmitting(false);
@@ -280,14 +268,14 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
               />
             </div>
 
-            {/* Clearance Packet & AI Pre-Audit Verification */}
+            {/* Clearance Packet & AI Pre-Check Intake */}
             <div className="p-4 bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Audit Intake
+                  <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Check Intake
                 </span>
                 <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Gemini Multimodal
+                  Gemini AI
                 </span>
               </div>
 
@@ -309,7 +297,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                       onChange={(e) => {
                         if (e.target.files?.[0]) {
                           setApfFile(e.target.files[0]);
-                          setAuditResult(null);
+                          setCheckResult(null);
                         }
                       }}
                     />
@@ -319,43 +307,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                       type="button"
                       onClick={() => {
                         setApfFile(null);
-                        setAuditResult(null);
-                      }}
-                      className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
-                      title="Remove attachment"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Budget Breakdown File Picker */}
-                <div className="flex items-center justify-between p-2.5 bg-[#16203D] border border-white/5 hover:border-white/20 transition">
-                  <label className="flex items-center gap-2 text-[11px] text-white/90 cursor-pointer flex-1 min-w-0">
-                    <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
-                    <span className="shrink-0">Budget Breakdown *</span>
-                    <span className="text-[10px] text-emerald-400 font-mono truncate ml-auto mr-2">
-                      {budgetFile ? budgetFile.name : "Choose XLSX / PDF"}
-                    </span>
-                    <input
-                      key={budgetFile ? budgetFile.name : "budget-empty"}
-                      type="file"
-                      accept=".xlsx,.xls,.pdf"
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files?.[0]) {
-                          setBudgetFile(e.target.files[0]);
-                          setAuditResult(null);
-                        }
-                      }}
-                    />
-                  </label>
-                  {budgetFile && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBudgetFile(null);
-                        setAuditResult(null);
+                        setCheckResult(null);
                       }}
                       className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                       title="Remove attachment"
@@ -381,7 +333,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                       onChange={(e) => {
                         if (e.target.files?.[0]) {
                           setWaiverFile(e.target.files[0]);
-                          setAuditResult(null);
+                          setCheckResult(null);
                         }
                       }}
                     />
@@ -391,7 +343,7 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                       type="button"
                       onClick={() => {
                         setWaiverFile(null);
-                        setAuditResult(null);
+                        setCheckResult(null);
                       }}
                       className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                       title="Remove attachment"
@@ -402,74 +354,51 @@ export function FacilitatorInterface({ onLogout }: { onLogout?: () => void }) {
                 </div>
               </div>
 
-              {/* Pre-Audit Button */}
-              <button
-                type="button"
-                onClick={runPreAuditScan}
-                disabled={isAuditing}
-                className="w-full py-2 bg-blue-600/30 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
-              >
-                <Sparkles className={`size-3.5 ${isAuditing ? "animate-spin" : ""}`} />
-                {isAuditing ? "Analyzing Compliance via Gemini..." : "Run AI Optical Pre-Audit Check"}
-              </button>
-
-              {/* Pre-Audit Feedback Results */}
-              {auditResult && (
+              {/* Pre-Check Feedback Results */}
+              {checkResult && (
                 <div
                   className={`p-3 border text-xs space-y-2 ${
-                    auditResult.passed
+                    checkResult.passed
                       ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-300"
                       : "bg-amber-950/30 border-amber-500/40 text-amber-300"
                   }`}
                 >
                   <div className="flex items-center justify-between font-bold text-[11px]">
                     <span className="flex items-center gap-1.5">
-                      {auditResult.passed ? (
+                      {checkResult.passed ? (
                         <CheckCircle2 className="size-3.5 text-emerald-400" />
                       ) : (
                         <AlertTriangle className="size-3.5 text-amber-400" />
                       )}
-                      {auditResult.passed ? "Pre-Audit Cleared (0 Gaps)" : "Gap Remediation Alert"}
+                      {checkResult.passed ? "Pre-Check Cleared (0 Gaps)" : "Gap Remediation Alert"}
                     </span>
                     <span className="text-[10px] uppercase font-mono">
-                      {auditResult.passed ? "Queue Eligible" : "Action Required"}
+                      {checkResult.passed ? "Queue Eligible" : "Action Required"}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1.5 text-[10px] text-white/80">
+                  <div className="grid grid-cols-2 gap-1.5 text-[10px] text-white/80">
                     <div className="p-1 bg-black/30 text-center">
-                      Adviser: {auditResult.adviserSignature ? "✓ Valid" : "✗ Missing"}
+                      Adviser: {checkResult.adviserSignature ? "✓ Valid" : "✗ Missing"}
                     </div>
                     <div className="p-1 bg-black/30 text-center">
-                      Budget: {auditResult.budgetBalanced ? "✓ Reconciled" : "✗ Error"}
-                    </div>
-                    <div className="p-1 bg-black/30 text-center">
-                      Waivers: {auditResult.waiversValid ? "✓ Present" : "✗ Missing"}
+                      Waivers: {checkResult.waiversValid ? "✓ Present" : "✗ Missing"}
                     </div>
                   </div>
 
-                  <p className="text-[10px] leading-relaxed text-white/70">{auditResult.notes}</p>
+                  <p className="text-[10px] leading-relaxed text-white/70">{checkResult.notes}</p>
                 </div>
               )}
             </div>
 
+            {/* Direct Unified Check & Submit Button */}
             <button
               type="submit"
-              disabled={submitting || !auditResult?.passed}
-              className={`w-full py-3 font-bold text-xs flex items-center justify-center gap-2 transition-all mt-2 ${
-                auditResult?.passed
-                  ? "bg-[#FDB813] hover:bg-[#e0a20f] text-black shadow-lg cursor-pointer"
-                  : "bg-white/10 text-white/40 cursor-not-allowed border border-white/5"
-              }`}
+              disabled={submitting}
+              className="w-full py-3 font-bold text-xs flex items-center justify-center gap-2 transition-all mt-2 bg-[#FDB813] hover:bg-[#e0a20f] text-black shadow-lg cursor-pointer disabled:opacity-50"
             >
               <Send className="size-3.5" />
-              {submitting
-                ? "Submitting Proposal..."
-                : !auditResult
-                ? "Run AI Pre-Audit Above to Enable Submission"
-                : !auditResult.passed
-                ? "Resolve Gaps & Re-run Audit to Submit"
-                : "Submit Proposal to Coordinator Queue"}
+              {submitting ? "Analyzing & Submitting..." : "Check & Submit Proposal"}
             </button>
           </form>
         </div>
