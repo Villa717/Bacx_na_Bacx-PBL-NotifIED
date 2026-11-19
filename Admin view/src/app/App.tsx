@@ -20,6 +20,8 @@ import {
   ShieldCheck,
   Search,
   Sparkles,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import adminBg from "../assets/admin-bg.jpeg";
@@ -57,7 +59,7 @@ interface AnnouncementItem {
   created_at: string;
 }
 
-interface FacilitatorAccount {
+export interface FacilitatorAccount {
   id: string;
   full_name: string;
   email: string;
@@ -66,54 +68,6 @@ interface FacilitatorAccount {
   status: "Active" | "Inactive";
   last_active: string;
 }
-
-const DEFAULT_FACILITATORS: FacilitatorAccount[] = [
-  {
-    id: "FAC-001",
-    full_name: "Andrei Antonio G. Villa",
-    email: "agvilla@student.apc.edu.ph",
-    organization: "CS Society",
-    role: "Activity Facilitator",
-    status: "Active",
-    last_active: "Online Today",
-  },
-  {
-    id: "FAC-002",
-    full_name: "Qelvin Joszeler Nagales",
-    email: "qjnagales@student.apc.edu.ph",
-    organization: "APC SOAR",
-    role: "Activity Facilitator",
-    status: "Active",
-    last_active: "2 hours ago",
-  },
-  {
-    id: "FAC-003",
-    full_name: "Marwin John Gonzales",
-    email: "mjgonzales@student.apc.edu.ph",
-    organization: "APC MSC",
-    role: "Activity Facilitator",
-    status: "Active",
-    last_active: "Yesterday",
-  },
-  {
-    id: "FAC-004",
-    full_name: "Rodmina Jhoy Ibe",
-    email: "rjibe@student.apc.edu.ph",
-    organization: "APC Strings",
-    role: "Activity Facilitator",
-    status: "Active",
-    last_active: "Yesterday",
-  },
-  {
-    id: "FAC-005",
-    full_name: "Charl Christopher Peniada",
-    email: "ccpeniada@student.apc.edu.ph",
-    organization: "APC-Pwersa MMA",
-    role: "Activity Facilitator",
-    status: "Active",
-    last_active: "3 days ago",
-  },
-];
 
 const DEFAULT_ANNOUNCEMENTS: AnnouncementItem[] = [
   {
@@ -142,7 +96,6 @@ export default function CoordinatorView() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Check saved session or prefill saved email on load
   useEffect(() => {
     const savedSession = localStorage.getItem("campussync_admin_logged_in");
     const savedEmail = localStorage.getItem("campussync_admin_remembered_email");
@@ -163,7 +116,6 @@ export default function CoordinatorView() {
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
-    // 1. Validation checks
     if (!trimmedEmail || !trimmedPassword) {
       setErrorMessage("Please enter both email and password.");
       return;
@@ -175,7 +127,6 @@ export default function CoordinatorView() {
       return;
     }
 
-    // 2. Prototype Admin Credential Verification
     const isValid =
       (trimmedEmail === VALID_ADMIN_EMAIL && trimmedPassword === VALID_ADMIN_PASSWORD) ||
       (trimmedEmail === "admin@apc.edu.ph" && trimmedPassword === "adminpassword123") ||
@@ -186,7 +137,6 @@ export default function CoordinatorView() {
       return;
     }
 
-    // 3. Handle Remember Me & Session storage
     if (rememberMe) {
       localStorage.setItem("campussync_admin_remembered_email", trimmedEmail);
       localStorage.setItem("campussync_admin_logged_in", "true");
@@ -214,7 +164,6 @@ export default function CoordinatorView() {
       >
         {/* ── Top Header Navigation ── */}
         <header className="w-full flex items-center justify-between z-10 shrink-0">
-          {/* Brand Mark with Accent C */}
           <div className="flex items-center gap-3">
             <div className="size-9 bg-[#0B132B] flex items-center justify-center font-black text-[#FFD000] text-lg border border-white/10 shadow-md rounded-none">
               C
@@ -230,7 +179,6 @@ export default function CoordinatorView() {
             </div>
           </div>
 
-          {/* Institutional Telemetry Status Badge */}
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B] border border-white/15 text-white text-xs font-semibold shadow-md rounded-none">
             <span className="size-2 bg-emerald-400"></span>
             CAMPUSSYNC: ADMIN COORDINATOR
@@ -240,14 +188,11 @@ export default function CoordinatorView() {
         {/* ── Main Left-Weighted Auth Terminal ── */}
         <main className="w-full my-auto py-8 z-10 flex items-center justify-start lg:pl-16">
           <div className="w-full max-w-[440px] bg-[#0E1528] border border-white/10 shadow-2xl p-8 md:p-10 text-left rounded-none">
-            
-            {/* Terminal Meta Header */}
             <div className="flex items-center justify-between text-[10px] font-mono tracking-widest text-[#FFD000] mb-3 uppercase">
               <span>AUTHORIZED CLEARANCE ACCESS</span>
               <span className="text-white/40">v2.5 SECURE</span>
             </div>
 
-            {/* Title & Description */}
             <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 tracking-tight">
               Admin Login
             </h1>
@@ -255,7 +200,6 @@ export default function CoordinatorView() {
               Review, clear, and publish campus event proposals.
             </p>
 
-            {/* Error Feedback */}
             {errorMessage && (
               <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2 rounded-none">
                 <AlertCircle className="size-4 shrink-0 mt-0.5" />
@@ -263,7 +207,6 @@ export default function CoordinatorView() {
               </div>
             )}
 
-            {/* Credentials Input Form */}
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
@@ -302,7 +245,6 @@ export default function CoordinatorView() {
                 </div>
               </div>
 
-              {/* Remember & Password Help */}
               <div className="flex items-center justify-between text-xs pt-1">
                 <label className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer select-none">
                   <input
@@ -318,7 +260,6 @@ export default function CoordinatorView() {
                 </span>
               </div>
 
-              {/* Yellow Action Button */}
               <button
                 type="submit"
                 className="w-full py-3 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition shadow-lg cursor-pointer mt-4 rounded-none"
@@ -327,7 +268,6 @@ export default function CoordinatorView() {
               </button>
             </form>
 
-            {/* Terminal Footprint */}
             <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/50">
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 bg-[#FFD000]"></span>
@@ -335,11 +275,9 @@ export default function CoordinatorView() {
               </span>
               <span>Asia Pacific College</span>
             </div>
-
           </div>
         </main>
 
-        {/* Empty Footer Spacer */}
         <div className="h-4 z-10 shrink-0"></div>
       </div>
     );
@@ -360,7 +298,6 @@ function getLeadTimeBadge(dateStr: string) {
   return { text: `🟢 In ${Math.round(diffHours / 24)}d`, isUrgent: false };
 }
 
-// AI Dynamic Urgency Triage Helper (UC-03 / Resolves FIFO Bottlenecks)
 function computeDynamicUrgency(dateStr: string | null): {
   tier: "P1" | "P2" | "P3";
   label: string;
@@ -378,7 +315,6 @@ function computeDynamicUrgency(dateStr: string | null): {
   const now = new Date().getTime();
   const diffHours = (target - now) / (1000 * 60 * 60);
 
-  // P1: Imminent events within 96 hours (4 days) or overdue/passed requiring resolution
   if (diffHours <= 96) {
     return {
       tier: "P1",
@@ -387,7 +323,6 @@ function computeDynamicUrgency(dateStr: string | null): {
     };
   }
 
-  // P2: Moderate operational horizon (between 4 days and 14 days)
   if (diffHours <= 336) {
     return {
       tier: "P2",
@@ -396,7 +331,6 @@ function computeDynamicUrgency(dateStr: string | null): {
     };
   }
 
-  // P3: Standard review scheduled well in advance (> 2 weeks)
   return {
     tier: "P3",
     label: "P3 STD",
@@ -411,7 +345,10 @@ export function CoordinatorInterface({
   onLogout?: () => void;
   coordinatorEmail?: string;
 }) {
-  const [activeNav, setActiveNav] = useState<"home" | "approvals" | "surveys" | "accounts">("approvals");
+  // Always lands on Home upon logging in
+  const [activeNav, setActiveNav] = useState<"home" | "approvals" | "surveys" | "accounts">("home");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [triageTier, setTriageTier] = useState<"ALL" | "P1" | "P2" | "P3">("ALL");
   const [reviewFilter, setReviewFilter] = useState<"PENDING" | "ALL">("PENDING");
@@ -426,7 +363,8 @@ export function CoordinatorInterface({
   const [annTitle, setAnnTitle] = useState("");
   const [annContent, setAnnContent] = useState("");
 
-  // Account Management Search State
+  // Account Management States (Empty until Facilitator View signup/persistence is connected)
+  const [facilitatorAccounts, setFacilitatorAccounts] = useState<FacilitatorAccount[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
 
   const pendingReviewEvents = events.filter(
@@ -439,7 +377,6 @@ export function CoordinatorInterface({
 
   const baseEventsList = reviewFilter === "PENDING" ? pendingReviewEvents : events;
 
-  // Dynamic triage calculation & Priority sorting (P1 first, then P2, then P3, then closest date)
   const triagedEvents = baseEventsList
     .map((item) => ({
       ...item,
@@ -475,8 +412,32 @@ export function CoordinatorInterface({
     setLoading(false);
   };
 
+  // Sync live registered facilitator accounts once Facilitator Portal creates users
+  const fetchFacilitatorAccounts = async () => {
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("role_id", 1);
+
+    if (!error && data && data.length > 0) {
+      const mapped: FacilitatorAccount[] = data.map((u: any) => ({
+        id: `FAC-${String(u.user_id).padStart(3, "0")}`,
+        full_name: u.full_name,
+        email: u.email,
+        organization: u.organization || "Student Organization",
+        role: "Activity Facilitator",
+        status: "Active",
+        last_active: "Registered",
+      }));
+      setFacilitatorAccounts(mapped);
+    } else {
+      setFacilitatorAccounts([]);
+    }
+  };
+
   useEffect(() => {
     fetchQueue();
+    fetchFacilitatorAccounts();
 
     const channel = supabase
       .channel("events-queue-channel")
@@ -557,7 +518,7 @@ export function CoordinatorInterface({
     setAnnContent("");
   };
 
-  const filteredFacilitators = DEFAULT_FACILITATORS.filter(
+  const filteredFacilitators = facilitatorAccounts.filter(
     (acc) =>
       acc.full_name.toLowerCase().includes(accountSearch.toLowerCase()) ||
       acc.email.toLowerCase().includes(accountSearch.toLowerCase()) ||
@@ -566,50 +527,77 @@ export function CoordinatorInterface({
 
   return (
     <div className="h-screen w-full flex overflow-hidden bg-[#0B132B] text-white font-sans">
-      {/* ── RAMS-STYLE LEFT SIDEBAR NAVIGATION ── */}
-      <aside className="w-64 bg-[#181D24] border-r border-white/10 flex flex-col justify-between shrink-0 select-none">
+      {/* ── RAMS-STYLE COLLAPSIBLE LEFT SIDEBAR NAVIGATION ── */}
+      <aside
+        className={`${
+          isSidebarCollapsed ? "w-20" : "w-64"
+        } bg-[#181D24] border-r border-white/10 flex flex-col justify-between shrink-0 select-none transition-all duration-200`}
+      >
         <div>
-          {/* Institutional Brand Header */}
-          <div className="p-4 border-b border-white/10 bg-[#12161C] flex items-center gap-3">
-            <div className="size-9 bg-[#0B132B] border border-[#FDB813]/40 flex items-center justify-center font-black text-[#FDB813] text-lg shrink-0 rounded-none">
-              C
-            </div>
-            <div className="min-w-0 text-left">
-              <div className="font-black text-sm tracking-tight text-white truncate">CampusSync</div>
-              <div className="text-[10px] font-mono text-[#FDB813] tracking-wider uppercase truncate">
-                ASIA PACIFIC COLLEGE
+          {/* Institutional Brand Header + Collapse Toggle */}
+          <div className="p-4 border-b border-white/10 bg-[#12161C] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="size-9 bg-[#0B132B] border border-[#FDB813]/40 flex items-center justify-center font-black text-[#FDB813] text-lg shrink-0 rounded-none">
+                C
               </div>
+              {!isSidebarCollapsed && (
+                <div className="min-w-0 text-left">
+                  <div className="font-black text-sm tracking-tight text-white truncate">CampusSync</div>
+                  <div className="text-[10px] font-mono text-[#FDB813] tracking-wider uppercase truncate">
+                    ASIA PACIFIC COLLEGE
+                  </div>
+                </div>
+              )}
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+              className="p-1.5 text-slate-400 hover:text-[#FDB813] hover:bg-white/5 transition cursor-pointer shrink-0"
+            >
+              {isSidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+            </button>
           </div>
 
           {/* Categorized Menu */}
           <nav className="py-4 space-y-5">
             <div>
-              <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
-                OVERVIEW
-              </div>
+              {!isSidebarCollapsed && (
+                <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
+                  OVERVIEW
+                </div>
+              )}
               <button
                 type="button"
+                title="Home"
                 onClick={() => setActiveNav("home")}
-                className={`w-full px-4 py-2.5 text-xs flex items-center gap-3 transition-colors cursor-pointer ${
+                className={`w-full px-4 py-2.5 text-xs flex items-center ${
+                  isSidebarCollapsed ? "justify-center" : "gap-3"
+                } transition-colors cursor-pointer ${
                   activeNav === "home"
                     ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
                     : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
                 }`}
               >
                 <Home className="size-4 text-[#FDB813] shrink-0" />
-                <span>Home</span>
+                {!isSidebarCollapsed && <span>Home</span>}
               </button>
             </div>
 
             <div>
-              <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
-                CLEARANCE WORKFLOW
-              </div>
+              {!isSidebarCollapsed && (
+                <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
+                  CLEARANCE WORKFLOW
+                </div>
+              )}
               <button
                 type="button"
+                title="Pending Approvals"
                 onClick={() => setActiveNav("approvals")}
-                className={`w-full px-4 py-2.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                className={`w-full px-4 py-2.5 text-xs flex items-center ${
+                  isSidebarCollapsed ? "justify-center relative" : "justify-between"
+                } transition-colors cursor-pointer ${
                   activeNav === "approvals"
                     ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
                     : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
@@ -617,10 +605,14 @@ export function CoordinatorInterface({
               >
                 <span className="flex items-center gap-3">
                   <ClipboardCheck className="size-4 text-[#FDB813] shrink-0" />
-                  <span>Pending Approvals</span>
+                  {!isSidebarCollapsed && <span>Pending Approvals</span>}
                 </span>
                 {pendingReviewEvents.length > 0 && (
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-[#FDB813] text-black">
+                  <span
+                    className={`${
+                      isSidebarCollapsed ? "absolute top-1.5 right-2 px-1 text-[9px]" : "px-1.5 py-0.5 text-[10px]"
+                    } font-bold bg-[#FDB813] text-black`}
+                  >
                     {pendingReviewEvents.length}
                   </span>
                 )}
@@ -628,33 +620,41 @@ export function CoordinatorInterface({
             </div>
 
             <div>
-              <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
-                GOVERNANCE & ANALYTICS
-              </div>
+              {!isSidebarCollapsed && (
+                <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
+                  GOVERNANCE & ANALYTICS
+                </div>
+              )}
               <button
                 type="button"
+                title="Surveys"
                 onClick={() => setActiveNav("surveys")}
-                className={`w-full px-4 py-2.5 text-xs flex items-center gap-3 transition-colors cursor-pointer ${
+                className={`w-full px-4 py-2.5 text-xs flex items-center ${
+                  isSidebarCollapsed ? "justify-center" : "gap-3"
+                } transition-colors cursor-pointer ${
                   activeNav === "surveys"
                     ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
                     : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
                 }`}
               >
                 <BarChart3 className="size-4 text-[#FDB813] shrink-0" />
-                <span>Surveys</span>
+                {!isSidebarCollapsed && <span>Surveys</span>}
               </button>
 
               <button
                 type="button"
+                title="Account Management"
                 onClick={() => setActiveNav("accounts")}
-                className={`w-full px-4 py-2.5 text-xs flex items-center gap-3 transition-colors cursor-pointer ${
+                className={`w-full px-4 py-2.5 text-xs flex items-center ${
+                  isSidebarCollapsed ? "justify-center" : "gap-3"
+                } transition-colors cursor-pointer ${
                   activeNav === "accounts"
                     ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
                     : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
                 }`}
               >
                 <Users className="size-4 text-[#FDB813] shrink-0" />
-                <span>Account Management</span>
+                {!isSidebarCollapsed && <span>Account Management</span>}
               </button>
             </div>
           </nav>
@@ -662,17 +662,20 @@ export function CoordinatorInterface({
 
         {/* Bottom Profile & Logout */}
         <div className="p-4 border-t border-white/10 bg-[#12161C] space-y-3">
-          <div className="text-left">
-            <div className="text-[10px] font-mono text-emerald-400 uppercase">● Clearance Authority</div>
-            <div className="text-xs font-semibold text-white truncate">{coordinatorEmail}</div>
-          </div>
+          {!isSidebarCollapsed && (
+            <div className="text-left">
+              <div className="text-[10px] font-mono text-emerald-400 uppercase">● Clearance Authority</div>
+              <div className="text-xs font-semibold text-white truncate">{coordinatorEmail}</div>
+            </div>
+          )}
           {onLogout && (
             <button
               onClick={onLogout}
+              title="Exit to Login"
               className="w-full py-2 px-3 rounded-none bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <LogOut className="size-3.5" />
-              Exit to Login
+              <LogOut className="size-3.5 shrink-0" />
+              {!isSidebarCollapsed && <span>Exit to Login</span>}
             </button>
           )}
         </div>
@@ -689,7 +692,10 @@ export function CoordinatorInterface({
             </span>
           </div>
           <button
-            onClick={fetchQueue}
+            onClick={() => {
+              fetchQueue();
+              fetchFacilitatorAccounts();
+            }}
             className="px-3 py-1 rounded-none bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 flex items-center gap-1.5 cursor-pointer transition"
           >
             <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
@@ -725,8 +731,8 @@ export function CoordinatorInterface({
               </div>
               <div className="p-5 bg-[#16203D] border border-white/10 rounded-none">
                 <p className="text-[11px] font-mono text-[#8D99AE] uppercase">Active Facilitators</p>
-                <p className="text-3xl font-black text-[#FDB813] mt-1">{DEFAULT_FACILITATORS.length}</p>
-                <p className="text-[11px] text-slate-300 mt-1">Registered org officers</p>
+                <p className="text-3xl font-black text-[#FDB813] mt-1">{facilitatorAccounts.length}</p>
+                <p className="text-[11px] text-slate-300 mt-1">Synced from Facilitator Portal</p>
               </div>
             </div>
 
@@ -792,7 +798,6 @@ export function CoordinatorInterface({
           <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
             {/* LEFT COLUMN: Event Queue List */}
             <div className="w-[380px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
-              {/* AI Dynamic Queue Triage Header (UC-03) */}
               <div className="p-4 border-b border-white/10 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -875,7 +880,6 @@ export function CoordinatorInterface({
                           : "bg-[#16203D] border-white/5 hover:border-white/20"
                       }`}
                     >
-                      {/* Top Row: Title + AI Urgency Badge & Status Badge */}
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <h3 className="font-semibold text-sm truncate text-white">{item.title}</h3>
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -948,7 +952,6 @@ export function CoordinatorInterface({
                 </div>
 
                 <div className="p-7 space-y-7 flex-1">
-                  {/* Event Logistics Grid */}
                   <div>
                     <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
                       Event Logistics
@@ -1024,7 +1027,6 @@ export function CoordinatorInterface({
                     </div>
                   </div>
 
-                  {/* Description */}
                   <div>
                     <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-2">
                       Proposal Description
@@ -1034,7 +1036,6 @@ export function CoordinatorInterface({
                     </div>
                   </div>
 
-                  {/* Promotional Assets & Links */}
                   <div>
                     <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
                       Promotional Assets
@@ -1173,14 +1174,14 @@ export function CoordinatorInterface({
           </div>
         )}
 
-        {/* ── TAB 4: ACCOUNT MANAGEMENT (ACTIVE FACILITATOR ACCOUNTS - UC-01) ── */}
+        {/* ── TAB 4: ACCOUNT MANAGEMENT (CONNECTED TO FACILITATOR PORTAL USERS) ── */}
         {activeNav === "accounts" && (
           <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4 text-left">
               <div>
-                <h1 className="text-lg font-bold text-white">Account Management — Active Facilitators</h1>
+                <h1 className="text-lg font-bold text-white">Account Management — Facilitator Registry</h1>
                 <p className="text-xs text-[#8D99AE] mt-0.5">
-                  Directory of accredited student organization facilitators currently using CampusSync.
+                  Displays permanent student facilitator accounts registered through the Facilitator Portal.
                 </p>
               </div>
               <div className="relative w-full sm:w-64">
@@ -1194,36 +1195,46 @@ export function CoordinatorInterface({
               </div>
             </div>
 
-            <div className="bg-[#16203D] border border-white/10 overflow-x-auto rounded-none">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-[#0E1733] border-b border-white/10 text-[10px] font-mono text-[#FDB813] uppercase">
-                    <th className="p-3.5">Account ID</th>
-                    <th className="p-3.5">Facilitator Name</th>
-                    <th className="p-3.5">Institutional Email</th>
-                    <th className="p-3.5">Organization</th>
-                    <th className="p-3.5">Activity</th>
-                    <th className="p-3.5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {filteredFacilitators.map((acc) => (
-                    <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                      <td className="p-3.5 font-mono text-slate-400">{acc.id}</td>
-                      <td className="p-3.5 font-semibold text-white">{acc.full_name}</td>
-                      <td className="p-3.5 text-slate-300">{acc.email}</td>
-                      <td className="p-3.5 text-[#FDB813] font-medium">{acc.organization}</td>
-                      <td className="p-3.5 text-slate-400">{acc.last_active}</td>
-                      <td className="p-3.5">
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                          ● {acc.status}
-                        </span>
-                      </td>
+            {filteredFacilitators.length === 0 ? (
+              <div className="p-12 bg-[#16203D] border border-white/10 text-center space-y-2 rounded-none">
+                <Users className="size-10 mx-auto text-slate-500 opacity-60 mb-2" />
+                <p className="text-sm font-bold text-white">No Registered Facilitator Accounts Yet</p>
+                <p className="text-xs text-[#8D99AE] max-w-md mx-auto">
+                  Facilitator accounts will appear here automatically once users register and sign in via the updated Facilitator Portal.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-[#16203D] border border-white/10 overflow-x-auto rounded-none">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#0E1733] border-b border-white/10 text-[10px] font-mono text-[#FDB813] uppercase">
+                      <th className="p-3.5">Account ID</th>
+                      <th className="p-3.5">Facilitator Name</th>
+                      <th className="p-3.5">Institutional Email</th>
+                      <th className="p-3.5">Organization</th>
+                      <th className="p-3.5">Activity</th>
+                      <th className="p-3.5">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {filteredFacilitators.map((acc) => (
+                      <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+                        <td className="p-3.5 font-mono text-slate-400">{acc.id}</td>
+                        <td className="p-3.5 font-semibold text-white">{acc.full_name}</td>
+                        <td className="p-3.5 text-slate-300">{acc.email}</td>
+                        <td className="p-3.5 text-[#FDB813] font-medium">{acc.organization}</td>
+                        <td className="p-3.5 text-slate-400">{acc.last_active}</td>
+                        <td className="p-3.5">
+                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                            ● {acc.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
