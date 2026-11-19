@@ -63,12 +63,7 @@ export default function App() {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedEmail)) {
-      setErrorMessage("Please enter a valid institutional email address.");
-      return;
-    }
-
-    if (!trimmedEmail.endsWith("@student.apc.edu.ph") && !trimmedEmail.endsWith("@apc.edu.ph")) {
-      setErrorMessage("Registration requires an institutional @student.apc.edu.ph or @apc.edu.ph email.");
+      setErrorMessage("Please enter a valid email address.");
       return;
     }
 
@@ -151,6 +146,11 @@ export default function App() {
       return;
     }
 
+    if (trimmedPassword.length < 6) {
+      setErrorMessage("Password must be at least 6 characters.");
+      return;
+    }
+
     setAuthLoading(true);
 
     // 1. Check permanent registered accounts in Supabase public.users
@@ -190,18 +190,7 @@ export default function App() {
       return;
     }
 
-    // 2. Fallback institutional domain login (auto-registers into public.users so Admin Account Management sees it)
-    const isInstitutionalFallback =
-      (trimmedEmail === VALID_FACILITATOR_EMAIL && trimmedPassword === VALID_PASSWORD) ||
-      (trimmedEmail.endsWith("@student.apc.edu.ph") && trimmedPassword.length >= 6) ||
-      (trimmedEmail.endsWith("@apc.edu.ph") && trimmedPassword.length >= 6);
-
-    if (!isInstitutionalFallback) {
-      setAuthLoading(false);
-      setErrorMessage("Invalid email or password. Use your APC email or Sign Up below.");
-      return;
-    }
-
+    // 2. Multi-tenant open login fallback (auto-registers any valid email into public.users so Admin Account Management tracks it)
     const derivedName = trimmedEmail
       .split("@")[0]
       .replace(/[._]/g, " ")
@@ -214,7 +203,7 @@ export default function App() {
           role_id: 1,
           full_name: derivedName,
           email: trimmedEmail,
-          organization: "CS Society",
+          organization: "Student Organization",
           password_hash: trimmedPassword,
         },
       ])
@@ -225,7 +214,7 @@ export default function App() {
       user_id: autoCreated?.user_id,
       full_name: derivedName,
       email: trimmedEmail,
-      organization: "CS Society",
+      organization: "Student Organization",
     };
 
     localStorage.setItem("campussync_facilitator_profile", JSON.stringify(fallbackProfile));
@@ -273,7 +262,7 @@ export default function App() {
                   FACILITATOR
                 </span>
               </div>
-              <p className="text-[11px] text-white/80 font-medium">Asia Pacific College Enterprise System</p>
+              <p className="text-[11px] text-white/80 font-medium">Multi-Tenant Campus Clearance System</p>
             </div>
           </div>
 
@@ -334,7 +323,7 @@ export default function App() {
             <p className="text-xs text-[#8D99AE] mb-6">
               {authMode === "login"
                 ? "Draft, pre-check, and submit campus event proposals."
-                : "Register a permanent student organization account on CampusSync."}
+                : "Register a permanent organization facilitator account on CampusSync."}
             </p>
 
             {/* Error & Success Alerts */}
@@ -372,14 +361,14 @@ export default function App() {
 
                   <div>
                     <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
-                      STUDENT ORGANIZATION *
+                      ORGANIZATION / INSTITUTION *
                     </label>
                     <input
                       type="text"
                       required
                       value={organization}
                       onChange={(e) => setOrganization(e.target.value)}
-                      placeholder="e.g., CS Society / APC SOAR"
+                      placeholder="e.g., CS Society / Student Council"
                       className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition"
                     />
                   </div>
@@ -388,14 +377,14 @@ export default function App() {
 
               <div>
                 <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
-                  INSTITUTIONAL EMAIL *
+                  EMAIL ADDRESS *
                 </label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="agvilla@student.apc.edu.ph"
+                  placeholder="facilitator@organization.edu"
                   className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition"
                 />
               </div>
@@ -458,7 +447,7 @@ export default function App() {
                 <span className="size-1.5 bg-[#FFD000]"></span>
                 Campus Clearance Portal
               </span>
-              <span>Asia Pacific College</span>
+              <span>Multi-Tenant Edition</span>
             </div>
           </div>
         </main>
