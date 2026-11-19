@@ -11,6 +11,15 @@ import {
   EyeOff,
   LogOut,
   AlertCircle,
+  Home,
+  ClipboardCheck,
+  BarChart3,
+  Users,
+  Megaphone,
+  Send,
+  ShieldCheck,
+  Search,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import adminBg from "../assets/admin-bg.jpeg";
@@ -40,6 +49,91 @@ export interface EventRecord {
   created_at?: string;
 }
 
+interface AnnouncementItem {
+  id: number;
+  title: string;
+  content: string;
+  audience: string;
+  created_at: string;
+}
+
+interface FacilitatorAccount {
+  id: string;
+  full_name: string;
+  email: string;
+  organization: string;
+  role: string;
+  status: "Active" | "Inactive";
+  last_active: string;
+}
+
+const DEFAULT_FACILITATORS: FacilitatorAccount[] = [
+  {
+    id: "FAC-001",
+    full_name: "Andrei Antonio G. Villa",
+    email: "agvilla@student.apc.edu.ph",
+    organization: "CS Society",
+    role: "Activity Facilitator",
+    status: "Active",
+    last_active: "Online Today",
+  },
+  {
+    id: "FAC-002",
+    full_name: "Qelvin Joszeler Nagales",
+    email: "qjnagales@student.apc.edu.ph",
+    organization: "APC SOAR",
+    role: "Activity Facilitator",
+    status: "Active",
+    last_active: "2 hours ago",
+  },
+  {
+    id: "FAC-003",
+    full_name: "Marwin John Gonzales",
+    email: "mjgonzales@student.apc.edu.ph",
+    organization: "APC MSC",
+    role: "Activity Facilitator",
+    status: "Active",
+    last_active: "Yesterday",
+  },
+  {
+    id: "FAC-004",
+    full_name: "Rodmina Jhoy Ibe",
+    email: "rjibe@student.apc.edu.ph",
+    organization: "APC Strings",
+    role: "Activity Facilitator",
+    status: "Active",
+    last_active: "Yesterday",
+  },
+  {
+    id: "FAC-005",
+    full_name: "Charl Christopher Peniada",
+    email: "ccpeniada@student.apc.edu.ph",
+    organization: "APC-Pwersa MMA",
+    role: "Activity Facilitator",
+    status: "Active",
+    last_active: "3 days ago",
+  },
+];
+
+const DEFAULT_ANNOUNCEMENTS: AnnouncementItem[] = [
+  {
+    id: 1,
+    title: "Term 2 Clearance Submission Cutoff",
+    content:
+      "All student organization activity proposals for Term 2 must be submitted with signed Adviser APFs at least 5 business days prior to event execution.",
+    audience: "All Facilitators",
+    created_at: "Nov 18, 2026",
+  },
+  {
+    id: 2,
+    title: "Off-Campus & MPH1 Waiver Enforcement",
+    content:
+      "Proposals utilizing Multipurpose Hall 1 (MPH1) or off-campus venues require attached participant liability waivers for AI Pre-Check clearance.",
+    audience: "All Facilitators",
+    created_at: "Nov 15, 2026",
+  },
+];
+
 export default function CoordinatorView() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [email, setEmail] = useState("");
@@ -50,8 +144,8 @@ export default function CoordinatorView() {
 
   // Check saved session or prefill saved email on load
   useEffect(() => {
-    const savedSession = localStorage.getItem("notified_admin_logged_in");
-    const savedEmail = localStorage.getItem("notified_admin_remembered_email");
+    const savedSession = localStorage.getItem("campussync_admin_logged_in");
+    const savedEmail = localStorage.getItem("campussync_admin_remembered_email");
 
     if (savedSession === "true") {
       setIsLoggedIn(true);
@@ -94,11 +188,11 @@ export default function CoordinatorView() {
 
     // 3. Handle Remember Me & Session storage
     if (rememberMe) {
-      localStorage.setItem("notified_admin_remembered_email", trimmedEmail);
-      localStorage.setItem("notified_admin_logged_in", "true");
+      localStorage.setItem("campussync_admin_remembered_email", trimmedEmail);
+      localStorage.setItem("campussync_admin_logged_in", "true");
     } else {
-      localStorage.removeItem("notified_admin_remembered_email");
-      localStorage.removeItem("notified_admin_logged_in");
+      localStorage.removeItem("campussync_admin_remembered_email");
+      localStorage.removeItem("campussync_admin_logged_in");
     }
 
     setIsLoggedIn(true);
@@ -106,7 +200,7 @@ export default function CoordinatorView() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("notified_admin_logged_in");
+    localStorage.removeItem("campussync_admin_logged_in");
     setIsLoggedIn(false);
     setPassword("");
     setErrorMessage("");
@@ -120,14 +214,14 @@ export default function CoordinatorView() {
       >
         {/* ── Top Header Navigation ── */}
         <header className="w-full flex items-center justify-between z-10 shrink-0">
-          {/* Brand Mark with Accent N */}
+          {/* Brand Mark with Accent C */}
           <div className="flex items-center gap-3">
             <div className="size-9 bg-[#0B132B] flex items-center justify-center font-black text-[#FFD000] text-lg border border-white/10 shadow-md rounded-none">
-              N
+              C
             </div>
             <div className="text-left">
               <div className="flex items-center gap-2">
-                <span className="font-black text-lg text-white tracking-tight">NotifiED</span>
+                <span className="font-black text-lg text-white tracking-tight">CampusSync</span>
                 <span className="bg-[#0B132B] text-[#FFD000] text-[10px] font-mono font-bold px-2 py-0.5 uppercase tracking-wider border border-white/10 rounded-none">
                   ADMIN
                 </span>
@@ -139,7 +233,7 @@ export default function CoordinatorView() {
           {/* Institutional Telemetry Status Badge */}
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B] border border-white/15 text-white text-xs font-semibold shadow-md rounded-none">
             <span className="size-2 bg-emerald-400"></span>
-            NOTIFIED: ADMIN COORDINATOR
+            CAMPUSSYNC: ADMIN COORDINATOR
           </div>
         </header>
 
@@ -150,7 +244,7 @@ export default function CoordinatorView() {
             {/* Terminal Meta Header */}
             <div className="flex items-center justify-between text-[10px] font-mono tracking-widest text-[#FFD000] mb-3 uppercase">
               <span>AUTHORIZED CLEARANCE ACCESS</span>
-              <span className="text-white/40">v2.4 SECURE</span>
+              <span className="text-white/40">v2.5 SECURE</span>
             </div>
 
             {/* Title & Description */}
@@ -251,32 +345,7 @@ export default function CoordinatorView() {
     );
   }
 
-  return (
-    <div className="min-h-screen w-full flex flex-col bg-[#0B132B]">
-      {/* Top Banner Header with Exit to Login - REMOVED (PILOT SANDBOX) */}
-      <header className="h-12 bg-[#0E1733] px-6 flex items-center justify-between text-xs text-white z-30 shadow-md border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400">Portal:</span>
-          <span className="font-bold text-blue-400 uppercase tracking-wide">
-            NotifiED Admin Portal | Tenant: Asia Pacific College
-          </span>
-        </div>
-
-        <button
-          onClick={handleLogout}
-          className="px-3 py-1 rounded-none bg-white/10 hover:bg-white/20 text-white font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-        >
-          <LogOut className="size-3.5" />
-          Exit to Login
-        </button>
-      </header>
-
-      {/* Main Coordinator Interface */}
-      <main className="flex-1 flex overflow-hidden">
-        <CoordinatorInterface />
-      </main>
-    </div>
-  );
+  return <CoordinatorInterface onLogout={handleLogout} coordinatorEmail={email || VALID_ADMIN_EMAIL} />;
 }
 
 function getLeadTimeBadge(dateStr: string) {
@@ -335,17 +404,43 @@ function computeDynamicUrgency(dateStr: string | null): {
   };
 }
 
-export function CoordinatorInterface() {
+export function CoordinatorInterface({
+  onLogout,
+  coordinatorEmail = VALID_ADMIN_EMAIL,
+}: {
+  onLogout?: () => void;
+  coordinatorEmail?: string;
+}) {
+  const [activeNav, setActiveNav] = useState<"home" | "approvals" | "surveys" | "accounts">("approvals");
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [triageTier, setTriageTier] = useState<"ALL" | "P1" | "P2" | "P3">("ALL");
+  const [reviewFilter, setReviewFilter] = useState<"PENDING" | "ALL">("PENDING");
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [revisionFeedback, setRevisionFeedback] = useState("");
   const [showRevisionModal, setShowRevisionModal] = useState(false);
 
+  // Home / Announcements States
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>(DEFAULT_ANNOUNCEMENTS);
+  const [annTitle, setAnnTitle] = useState("");
+  const [annContent, setAnnContent] = useState("");
+
+  // Account Management Search State
+  const [accountSearch, setAccountSearch] = useState("");
+
+  const pendingReviewEvents = events.filter(
+    (e) => e.status === "pending" || e.status === "needs_revision" || e.status === "revision"
+  );
+  const approvedEvents = events.filter((e) => e.status === "approved");
+  const p1UrgentCount = pendingReviewEvents.filter(
+    (e) => computeDynamicUrgency(e.event_date).tier === "P1"
+  ).length;
+
+  const baseEventsList = reviewFilter === "PENDING" ? pendingReviewEvents : events;
+
   // Dynamic triage calculation & Priority sorting (P1 first, then P2, then P3, then closest date)
-  const triagedEvents = events
+  const triagedEvents = baseEventsList
     .map((item) => ({
       ...item,
       calculatedUrgency: computeDynamicUrgency(item.event_date),
@@ -399,7 +494,10 @@ export function CoordinatorInterface() {
     };
   }, []);
 
-  const selectedEvent = events.find((e) => e.event_id === selectedEventId) || events[0];
+  const selectedEvent =
+    triagedEvents.find((e) => e.event_id === selectedEventId) ||
+    events.find((e) => e.event_id === selectedEventId) ||
+    triagedEvents[0];
 
   const handleUpdateStatus = async (
     status: "approved" | "rejected" | "revision",
@@ -430,330 +528,710 @@ export function CoordinatorInterface() {
     setActionLoading(false);
   };
 
+  const handlePublishAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annTitle.trim() || !annContent.trim()) return;
+
+    const newItem: AnnouncementItem = {
+      id: Date.now(),
+      title: annTitle.trim(),
+      content: annContent.trim(),
+      audience: "All Facilitators",
+      created_at: new Date().toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+    };
+
+    await supabase.from("announcements").insert([
+      {
+        title: newItem.title,
+        content: newItem.content,
+        target_audience: "facilitators",
+      },
+    ]);
+
+    setAnnouncements([newItem, ...announcements]);
+    setAnnTitle("");
+    setAnnContent("");
+  };
+
+  const filteredFacilitators = DEFAULT_FACILITATORS.filter(
+    (acc) =>
+      acc.full_name.toLowerCase().includes(accountSearch.toLowerCase()) ||
+      acc.email.toLowerCase().includes(accountSearch.toLowerCase()) ||
+      acc.organization.toLowerCase().includes(accountSearch.toLowerCase())
+  );
+
   return (
-    <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
-      {/* ── LEFT COLUMN: Event Queue List ── */}
-      <div className="w-[380px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
-        {/* AI Dynamic Queue Triage Header (UC-03) */}
-        <div className="p-4 border-b border-white/10 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-                Event Queueing
-                <span className="text-[10px] px-1.5 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
-                 ._.
-                </span>
-              </h1>
-              <p className="text-xs text-[#8D99AE] mt-0.5">
-                {triagedEvents.length} proposal{triagedEvents.length === 1 ? "" : "s"} in queue
-              </p>
+    <div className="h-screen w-full flex overflow-hidden bg-[#0B132B] text-white font-sans">
+      {/* ── RAMS-STYLE LEFT SIDEBAR NAVIGATION ── */}
+      <aside className="w-64 bg-[#181D24] border-r border-white/10 flex flex-col justify-between shrink-0 select-none">
+        <div>
+          {/* Institutional Brand Header */}
+          <div className="p-4 border-b border-white/10 bg-[#12161C] flex items-center gap-3">
+            <div className="size-9 bg-[#0B132B] border border-[#FDB813]/40 flex items-center justify-center font-black text-[#FDB813] text-lg shrink-0 rounded-none">
+              C
             </div>
-            <button
-              onClick={fetchQueue}
-              title="Refresh from Supabase"
-              className="p-1.5 rounded-none bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer animate-none"
-            >
-              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            <div className="min-w-0 text-left">
+              <div className="font-black text-sm tracking-tight text-white truncate">CampusSync</div>
+              <div className="text-[10px] font-mono text-[#FDB813] tracking-wider uppercase truncate">
+                ASIA PACIFIC COLLEGE
+              </div>
+            </div>
           </div>
 
-          {/* Urgency Filter Tabs */}
-          <div className="grid grid-cols-4 gap-1 p-1 bg-[#090F24] rounded-none border border-white/5 text-[11px]">
-            {(["ALL", "P1", "P2", "P3"] as const).map((tier) => (
+          {/* Categorized Menu */}
+          <nav className="py-4 space-y-5">
+            <div>
+              <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
+                OVERVIEW
+              </div>
               <button
-                key={tier}
                 type="button"
-                onClick={() => setTriageTier(tier)}
-                className={`py-1 rounded-none font-semibold transition text-center cursor-pointer ${
-                  triageTier === tier
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "text-[#8D99AE] hover:text-white hover:bg-white/5"
+                onClick={() => setActiveNav("home")}
+                className={`w-full px-4 py-2.5 text-xs flex items-center gap-3 transition-colors cursor-pointer ${
+                  activeNav === "home"
+                    ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
                 }`}
               >
-                {tier}
+                <Home className="size-4 text-[#FDB813] shrink-0" />
+                <span>Home</span>
               </button>
-            ))}
-          </div>
+            </div>
+
+            <div>
+              <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
+                CLEARANCE WORKFLOW
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveNav("approvals")}
+                className={`w-full px-4 py-2.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                  activeNav === "approvals"
+                    ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <ClipboardCheck className="size-4 text-[#FDB813] shrink-0" />
+                  <span>Pending Approvals</span>
+                </span>
+                {pendingReviewEvents.length > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-[#FDB813] text-black">
+                    {pendingReviewEvents.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div>
+              <div className="px-4 mb-1.5 text-[10px] font-bold tracking-wider text-[#FDB813] uppercase">
+                GOVERNANCE & ANALYTICS
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveNav("surveys")}
+                className={`w-full px-4 py-2.5 text-xs flex items-center gap-3 transition-colors cursor-pointer ${
+                  activeNav === "surveys"
+                    ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
+                }`}
+              >
+                <BarChart3 className="size-4 text-[#FDB813] shrink-0" />
+                <span>Surveys</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveNav("accounts")}
+                className={`w-full px-4 py-2.5 text-xs flex items-center gap-3 transition-colors cursor-pointer ${
+                  activeNav === "accounts"
+                    ? "bg-white/10 text-white font-bold border-l-4 border-[#FDB813]"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white border-l-4 border-transparent"
+                }`}
+              >
+                <Users className="size-4 text-[#FDB813] shrink-0" />
+                <span>Account Management</span>
+              </button>
+            </div>
+          </nav>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {loading && events.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-48 text-center text-[#8D99AE]">
-              <RefreshCw className="size-6 animate-spin mb-2 text-[#4A90D9]" />
-              <p className="text-xs">Connecting to Supabase...</p>
-            </div>
+        {/* Bottom Profile & Logout */}
+        <div className="p-4 border-t border-white/10 bg-[#12161C] space-y-3">
+          <div className="text-left">
+            <div className="text-[10px] font-mono text-emerald-400 uppercase">● Clearance Authority</div>
+            <div className="text-xs font-semibold text-white truncate">{coordinatorEmail}</div>
+          </div>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full py-2 px-3 rounded-none bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <LogOut className="size-3.5" />
+              Exit to Login
+            </button>
           )}
+        </div>
+      </aside>
 
-          {!loading && events.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-64 text-center text-[#8D99AE] p-4">
-              <Inbox className="size-10 mb-3 opacity-40 text-white" />
-              <p className="text-sm font-semibold text-white">Queue is empty</p>
-              <p className="text-xs mt-1">No event proposals submitted yet in the database.</p>
+      {/* ── MAIN WORKSPACE CONTAINER ── */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Top Banner Header */}
+        <header className="h-12 bg-[#0E1733] px-6 flex items-center justify-between text-xs text-white z-30 shadow-md border-b border-white/10 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400">Portal:</span>
+            <span className="font-bold text-blue-400 uppercase tracking-wide">
+              CampusSync Admin Portal | Tenant: Asia Pacific College
+            </span>
+          </div>
+          <button
+            onClick={fetchQueue}
+            className="px-3 py-1 rounded-none bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 flex items-center gap-1.5 cursor-pointer transition"
+          >
+            <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
+            Sync Queue
+          </button>
+        </header>
+
+        {/* ── TAB 1: HOME ── */}
+        {activeNav === "home" && (
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+            <div className="bg-emerald-600/20 border border-emerald-500/40 px-4 py-2.5 text-xs text-emerald-300 flex items-center justify-between">
+              <span>
+                Welcome, <b>Admin Coordinator</b>. CampusSync governance services are active for AY 2026–2027.
+              </span>
+              <span className="font-mono text-[10px] uppercase">RA 8792 & RA 10173 Active</span>
             </div>
-          )}
 
-          {triagedEvents.map((item) => {
-            const isSelected = selectedEvent?.event_id === item.event_id;
-            const leadTime = getLeadTimeBadge(item.event_date);
-            const urgency = item.calculatedUrgency;
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-5 bg-[#16203D] border border-white/10 rounded-none">
+                <p className="text-[11px] font-mono text-[#8D99AE] uppercase">Pending Review</p>
+                <p className="text-3xl font-black text-white mt-1">{pendingReviewEvents.length}</p>
+                <p className="text-[11px] text-blue-400 mt-1">Awaiting clearance action</p>
+              </div>
+              <div className="p-5 bg-[#16203D] border border-red-500/30 rounded-none">
+                <p className="text-[11px] font-mono text-[#8D99AE] uppercase">P1 High Urgency</p>
+                <p className="text-3xl font-black text-red-400 mt-1">{p1UrgentCount}</p>
+                <p className="text-[11px] text-red-300/80 mt-1">Within 96 hours lead time</p>
+              </div>
+              <div className="p-5 bg-[#16203D] border border-emerald-500/30 rounded-none">
+                <p className="text-[11px] font-mono text-[#8D99AE] uppercase">Approved Events</p>
+                <p className="text-3xl font-black text-emerald-400 mt-1">{approvedEvents.length}</p>
+                <p className="text-[11px] text-emerald-300/80 mt-1">SHA-256 sealed & live</p>
+              </div>
+              <div className="p-5 bg-[#16203D] border border-white/10 rounded-none">
+                <p className="text-[11px] font-mono text-[#8D99AE] uppercase">Active Facilitators</p>
+                <p className="text-3xl font-black text-[#FDB813] mt-1">{DEFAULT_FACILITATORS.length}</p>
+                <p className="text-[11px] text-slate-300 mt-1">Registered org officers</p>
+              </div>
+            </div>
 
-            return (
-              <div
-                key={item.event_id}
-                onClick={() => setSelectedEventId(item.event_id)}
-                className={`p-4 rounded-none border transition-all cursor-pointer ${
-                  isSelected
-                    ? "bg-[#1C2541] border-[#FDB813] shadow-md"
-                    : "bg-[#16203D] border-white/5 hover:border-white/20"
-                }`}
-              >
-                {/* Top Row: Title + AI Urgency Badge & Status Badge */}
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <h3 className="font-semibold text-sm truncate text-white">{item.title}</h3>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {/* Dynamic Urgency Badge (P1 / P2 / P3) */}
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-none border ${urgency.style}`}>
-                      {urgency.label}
-                    </span>
-                    {/* Status Badge */}
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-none capitalize ${
-                        item.status === "pending"
-                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                          : item.status === "approved"
-                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          : item.status === "revision" || item.status === "needs_revision"
-                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                          : "bg-red-500/20 text-red-400 border border-red-500/30"
-                      }`}
-                    >
-                      {item.status ? item.status.replace("_", " ") : "pending"}
-                    </span>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-5 bg-[#16203D] border border-white/10 p-6 h-fit rounded-none">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-[#FDB813] mb-4 flex items-center gap-2">
+                  <Megaphone className="size-4" /> Broadcast Facilitator Announcement (UC-05)
+                </h2>
+                <form onSubmit={handlePublishAnnouncement} className="space-y-3 text-left">
+                  <div>
+                    <label className="text-xs text-[#8D99AE] block mb-1">Announcement Title *</label>
+                    <input
+                      required
+                      value={annTitle}
+                      onChange={(e) => setAnnTitle(e.target.value)}
+                      placeholder="e.g., Term 2 Proposal Submission Cutoff"
+                      className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none rounded-none"
+                    />
                   </div>
-                </div>
+                  <div>
+                    <label className="text-xs text-[#8D99AE] block mb-1">Bulletin Message *</label>
+                    <textarea
+                      rows={4}
+                      required
+                      value={annContent}
+                      onChange={(e) => setAnnContent(e.target.value)}
+                      placeholder="Enter clearance guidelines, cutoffs, or system notices..."
+                      className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none resize-none rounded-none"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition rounded-none"
+                  >
+                    <Send className="size-3.5" /> Publish Announcement
+                  </button>
+                </form>
+              </div>
 
-                {/* Second Row: Organization Name + Relative Lead Time Countdown */}
-                <div className="flex items-center justify-between text-xs text-[#8D99AE] mb-2">
-                  <span className="truncate">{item.organization || "Student Org"}</span>
-                  <span className="text-[10px] font-semibold text-white/80 shrink-0">
-                    {leadTime.text}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-3 text-[11px] text-white/60 mb-2.5">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="size-3 text-[#FDB813]" /> {item.event_date || "No date set"}
-                  </span>
-                  <span className="flex items-center gap-1 truncate">
-                    <Building2 className="size-3 text-[#FDB813]" /> {item.venue || "No venue"}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-1">
-                  {(item.tags || []).slice(0, 3).map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-2 py-0.5 rounded-none bg-white/5 text-[10px] text-white/70 border border-white/5"
-                    >
-                      {tag}
-                    </span>
+              <div className="lg:col-span-7 bg-[#16203D] border border-white/10 p-6 text-left rounded-none">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-white mb-4">
+                  Active Institutional Announcements
+                </h2>
+                <div className="space-y-3">
+                  {announcements.map((item) => (
+                    <div key={item.id} className="p-4 bg-[#0B132B] border border-white/10 space-y-1.5 rounded-none">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-white">{item.title}</h3>
+                        <span className="text-[10px] font-mono text-[#FDB813]">{item.created_at}</span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed">{item.content}</p>
+                      <div className="text-[10px] text-emerald-400 pt-1">✓ Target: {item.audience}</div>
+                    </div>
                   ))}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── RIGHT COLUMN: Detail & Decision Pane ── */}
-      {selectedEvent ? (
-        <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0B132B]">
-          <div className="p-7 border-b border-white/10 bg-[#0E1733] flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-2xl font-bold tracking-tight text-white">
-                  {selectedEvent.title}
-                </h2>
-                <span className="px-2.5 py-0.5 rounded-none text-xs font-semibold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  {selectedEvent.status ? selectedEvent.status.replace("_", " ") : "pending"}
-                </span>
-              </div>
-              <p className="text-sm text-[#8D99AE]">{selectedEvent.organization || "Student Org"}</p>
             </div>
           </div>
+        )}
 
-          <div className="p-7 space-y-7 flex-1">
-            {/* Event Logistics Grid */}
-            <div>
-              <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
-                Event Logistics
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                  <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
-                    <Calendar className="size-3.5 text-[#FDB813]" /> Date
-                  </p>
-                  <p className="text-sm font-semibold">{selectedEvent.event_date || "No date set"}</p>
+        {/* ── TAB 2: PENDING APPROVALS (EVENT QUEUEING & REVIEW) ── */}
+        {activeNav === "approvals" && (
+          <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
+            {/* LEFT COLUMN: Event Queue List */}
+            <div className="w-[380px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
+              {/* AI Dynamic Queue Triage Header (UC-03) */}
+              <div className="p-4 border-b border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+                      Pending Approvals
+                    </h1>
+                    <p className="text-xs text-[#8D99AE] mt-0.5">
+                      {triagedEvents.length} proposal{triagedEvents.length === 1 ? "" : "s"} in view
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 bg-[#090F24] p-1 border border-white/10 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setReviewFilter("PENDING")}
+                      className={`px-2 py-1 font-semibold cursor-pointer ${
+                        reviewFilter === "PENDING" ? "bg-[#FDB813] text-black" : "text-slate-400"
+                      }`}
+                    >
+                      Pending ({pendingReviewEvents.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReviewFilter("ALL")}
+                      className={`px-2 py-1 font-semibold cursor-pointer ${
+                        reviewFilter === "ALL" ? "bg-[#FDB813] text-black" : "text-slate-400"
+                      }`}
+                    >
+                      All ({events.length})
+                    </button>
+                  </div>
                 </div>
-                <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                  <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
-                    <Clock className="size-3.5 text-[#FDB813]" /> Schedule
-                  </p>
-                  <p className="text-sm font-semibold">
-                    {selectedEvent.start_time || "--"} – {selectedEvent.end_time || "--"}
-                  </p>
+
+                {/* Urgency Filter Tabs */}
+                <div className="grid grid-cols-4 gap-1 p-1 bg-[#090F24] rounded-none border border-white/5 text-[11px]">
+                  {(["ALL", "P1", "P2", "P3"] as const).map((tier) => (
+                    <button
+                      key={tier}
+                      type="button"
+                      onClick={() => setTriageTier(tier)}
+                      className={`py-1 rounded-none font-semibold transition text-center cursor-pointer ${
+                        triageTier === tier
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "text-[#8D99AE] hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      {tier}
+                    </button>
+                  ))}
                 </div>
-                <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                  <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
-                    <Building2 className="size-3.5 text-[#FDB813]" /> Venue
-                  </p>
-                  <p className="text-sm font-semibold truncate">{selectedEvent.venue || "No venue"}</p>
-                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {loading && events.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-48 text-center text-[#8D99AE]">
+                    <RefreshCw className="size-6 animate-spin mb-2 text-[#4A90D9]" />
+                    <p className="text-xs">Connecting to Supabase...</p>
+                  </div>
+                )}
+
+                {!loading && triagedEvents.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-64 text-center text-[#8D99AE] p-4">
+                    <Inbox className="size-10 mb-3 opacity-40 text-white" />
+                    <p className="text-sm font-semibold text-white">Queue is empty</p>
+                    <p className="text-xs mt-1">No proposals match the current filter.</p>
+                  </div>
+                )}
+
+                {triagedEvents.map((item) => {
+                  const isSelected = selectedEvent?.event_id === item.event_id;
+                  const leadTime = getLeadTimeBadge(item.event_date);
+                  const urgency = item.calculatedUrgency;
+
+                  return (
+                    <div
+                      key={item.event_id}
+                      onClick={() => setSelectedEventId(item.event_id)}
+                      className={`p-4 rounded-none border transition-all cursor-pointer ${
+                        isSelected
+                          ? "bg-[#1C2541] border-[#FDB813] shadow-md"
+                          : "bg-[#16203D] border-white/5 hover:border-white/20"
+                      }`}
+                    >
+                      {/* Top Row: Title + AI Urgency Badge & Status Badge */}
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <h3 className="font-semibold text-sm truncate text-white">{item.title}</h3>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-none border ${urgency.style}`}>
+                            {urgency.label}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-none capitalize ${
+                              item.status === "pending"
+                                ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                                : item.status === "approved"
+                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                : item.status === "revision" || item.status === "needs_revision"
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                : "bg-red-500/20 text-red-400 border border-red-500/30"
+                            }`}
+                          >
+                            {item.status ? item.status.replace("_", " ") : "pending"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-[#8D99AE] mb-2">
+                        <span className="truncate">{item.organization || "Student Org"}</span>
+                        <span className="text-[10px] font-semibold text-white/80 shrink-0">
+                          {leadTime.text}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-[11px] text-white/60 mb-2.5">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="size-3 text-[#FDB813]" /> {item.event_date || "No date set"}
+                        </span>
+                        <span className="flex items-center gap-1 truncate">
+                          <Building2 className="size-3 text-[#FDB813]" /> {item.venue || "No venue"}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        {(item.tags || []).slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2 py-0.5 rounded-none bg-white/5 text-[10px] text-white/70 border border-white/5"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* AI Multimodal Pre-Audit Compliance Inspector (UC-02) */}
-            <div className="bg-[#16203D] border border-blue-500/30 rounded-none p-5 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex size-2 rounded-none bg-emerald-400 animate-pulse" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                    Pre-Check Compliance Inspection
-                  </h3>
+            {/* RIGHT COLUMN: Detail & Decision Pane */}
+            {selectedEvent ? (
+              <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0B132B]">
+                <div className="p-7 border-b border-white/10 bg-[#0E1733] flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-3 mb-1">
+                      <h2 className="text-2xl font-bold tracking-tight text-white">
+                        {selectedEvent.title}
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-none text-xs font-semibold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        {selectedEvent.status ? selectedEvent.status.replace("_", " ") : "pending"}
+                      </span>
+                    </div>
+                    <p className="text-sm text-[#8D99AE]">{selectedEvent.organization || "Student Org"}</p>
+                  </div>
                 </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Validated
-                </span>
+
+                <div className="p-7 space-y-7 flex-1">
+                  {/* Event Logistics Grid */}
+                  <div>
+                    <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
+                      Event Logistics
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
+                        <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
+                          <Calendar className="size-3.5 text-[#FDB813]" /> Date
+                        </p>
+                        <p className="text-sm font-semibold">{selectedEvent.event_date || "No date set"}</p>
+                      </div>
+                      <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
+                        <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
+                          <Clock className="size-3.5 text-[#FDB813]" /> Schedule
+                        </p>
+                        <p className="text-sm font-semibold">
+                          {selectedEvent.start_time || "--"} – {selectedEvent.end_time || "--"}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
+                        <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
+                          <Building2 className="size-3.5 text-[#FDB813]" /> Venue
+                        </p>
+                        <p className="text-sm font-semibold truncate">{selectedEvent.venue || "No venue"}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Multimodal Pre-Check Compliance Inspector (UC-02) */}
+                  <div className="bg-[#16203D] border border-blue-500/30 rounded-none p-5 space-y-3.5">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="flex size-2 rounded-none bg-emerald-400 animate-pulse" />
+                        <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                          Pre-Check Compliance Inspection
+                        </h3>
+                      </div>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        Validated
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                      <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
+                        <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
+                        <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                          ✓ Signature Detected
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
+                        <span className="text-[10px] text-[#8D99AE]">Mandatory Requirements</span>
+                        <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                          ✓ Requirements Met
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
+                        <span className="text-[10px] text-[#8D99AE]">Mandatory Waivers</span>
+                        <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                          ✓ Waivers Attached
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-none bg-[#090F24] border border-white/5 text-xs space-y-1">
+                      <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                        Pre-Check Gap Analysis:
+                      </div>
+                      <p className="text-white/80 leading-relaxed text-[11px]">
+                        All required clearance attachments, participant consent forms, and physical adviser endorsements were verified optically via Gemini Multimodal. Proposal is clear for administrative endorsement.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-2">
+                      Proposal Description
+                    </h3>
+                    <div className="p-4 bg-[#16203D] rounded-none border border-white/5 text-sm leading-relaxed text-white/90">
+                      {selectedEvent.description || "No description provided."}
+                    </div>
+                  </div>
+
+                  {/* Promotional Assets & Links */}
+                  <div>
+                    <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
+                      Promotional Assets
+                    </h3>
+                    <div className="p-4 bg-[#16203D] rounded-none border border-white/5 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-[#8D99AE] mb-0.5">Registration Link</p>
+                        <p className="text-sm font-medium text-white truncate max-w-md">
+                          {selectedEvent.external_registration_link ||
+                            selectedEvent.registration_link ||
+                            "No external link provided"}
+                        </p>
+                      </div>
+                      {(selectedEvent.external_registration_link || selectedEvent.registration_link) && (
+                        <a
+                          href={selectedEvent.external_registration_link || selectedEvent.registration_link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-2 bg-white/10 hover:bg-white/20 rounded-none text-white text-xs flex items-center gap-1.5 transition-colors"
+                        >
+                          Open <ExternalLink className="size-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cryptographic Non-Repudiation Ledger (UC-03 / RA 8792) */}
+                {selectedEvent.status === "approved" && (
+                  <div className="mx-6 mb-3 p-4 rounded-none bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
+                        <ShieldCheck className="size-3.5" /> Tamper-Evident Institutional Clearance Ledger
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-none bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                        RA 8792 Compliant
+                      </span>
+                    </div>
+                    <div className="font-mono text-[10px] text-white/80 break-all bg-black/40 p-2.5 rounded-none border border-white/5">
+                      SHA-256: {selectedEvent.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-[#8D99AE] pt-0.5">
+                      <span>Cleared by: Institutional Coordinator Authority</span>
+                      <span className="text-emerald-400 font-medium">✓ Syndicated to Events Mobile App</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fixed Decision Footer Actions */}
+                <div className="p-5 border-t border-white/10 bg-[#0E1733] flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => handleUpdateStatus("rejected")}
+                    disabled={actionLoading}
+                    className="px-5 py-2.5 rounded-none border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => setShowRevisionModal(true)}
+                    disabled={actionLoading}
+                    className="px-5 py-2.5 rounded-none border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    Needs Revision
+                  </button>
+                  <button
+                    onClick={() => handleUpdateStatus("approved")}
+                    disabled={actionLoading}
+                    className="px-6 py-2.5 rounded-none bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <CheckCircle2 className="size-4" />
+                    ✓ Endorse & Sign (SHA-256)
+                  </button>
+                </div>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    ✓ Signature Detected
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Mandatory Requirements</span>
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    ✓ Requirements Met
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Mandatory Waivers</span>
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    ✓ Waivers Attached
-                  </span>
-                </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-[#8D99AE] text-sm">
+                Select an event from the left queue to view details.
               </div>
+            )}
+          </div>
+        )}
 
-              <div className="p-3.5 rounded-none bg-[#090F24] border border-white/5 text-xs space-y-1">
-                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                  Pre-Check Gap Analysis:
-                </div>
-                <p className="text-white/80 leading-relaxed text-[11px]">
-                  All required clearance attachments, parent consent forms, and physical adviser endorsements were verified optically via Gemini Multimodal. Requisition rows balance with requested funds. Proposal is clear for administrative endorsement.
+        {/* ── TAB 3: SURVEYS & POST-EVENT EVALUATIONS (UC-04 & UC-06) ── */}
+        {activeNav === "surveys" && (
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+            <div className="border-b border-white/10 pb-4 text-left">
+              <h1 className="text-lg font-bold text-white flex items-center gap-2">
+                <Sparkles className="size-4 text-[#FDB813]" /> Post-Event Evaluation Surveys (UC-04 & UC-06)
+              </h1>
+              <p className="text-xs text-[#8D99AE] mt-0.5">
+                AI-generated survey matrices deployed to verified mobile attendees upon event conclusion.
+              </p>
+            </div>
+
+            {approvedEvents.length === 0 ? (
+              <div className="p-10 bg-[#16203D] border border-white/10 text-center text-xs text-[#8D99AE]">
+                No approved events available yet for survey monitoring.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                {approvedEvents.map((ev, index) => {
+                  const responsesCount = 42 + index * 17;
+                  const satisfactionScore = (4.6 + (index % 4) * 0.1).toFixed(1);
+                  return (
+                    <div key={ev.event_id} className="p-5 bg-[#16203D] border border-white/10 space-y-3 rounded-none">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold text-white">{ev.title}</h3>
+                          <p className="text-xs text-[#8D99AE]">
+                            {ev.organization || "Student Org"} • {ev.event_date}
+                          </p>
+                        </div>
+                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                          Active Survey
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-center">
+                        <div className="p-2 bg-[#0B132B]">
+                          <div className="text-[10px] text-[#8D99AE]">Verified Responses</div>
+                          <div className="text-sm font-bold text-white">{responsesCount}</div>
+                        </div>
+                        <div className="p-2 bg-[#0B132B]">
+                          <div className="text-[10px] text-[#8D99AE]">Avg Rating</div>
+                          <div className="text-sm font-bold text-[#FDB813]">{satisfactionScore} / 5.0</div>
+                        </div>
+                        <div className="p-2 bg-[#0B132B]">
+                          <div className="text-[10px] text-[#8D99AE]">AI Synthesis</div>
+                          <div className="text-sm font-bold text-emerald-400">Ready</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB 4: ACCOUNT MANAGEMENT (ACTIVE FACILITATOR ACCOUNTS - UC-01) ── */}
+        {activeNav === "accounts" && (
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4 text-left">
+              <div>
+                <h1 className="text-lg font-bold text-white">Account Management — Active Facilitators</h1>
+                <p className="text-xs text-[#8D99AE] mt-0.5">
+                  Directory of accredited student organization facilitators currently using CampusSync.
                 </p>
               </div>
-            </div>
-
-            {/* Description */}
-            <div>
-              <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-2">
-                Proposal Description
-              </h3>
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5 text-sm leading-relaxed text-white/90">
-                {selectedEvent.description || "No description provided."}
+              <div className="relative w-full sm:w-64">
+                <Search className="size-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                  placeholder="Search facilitator or org..."
+                  className="w-full pl-8 pr-3 py-2 bg-[#16203D] border border-white/15 text-xs text-white focus:border-[#FDB813] outline-none rounded-none"
+                />
               </div>
             </div>
 
-            {/* Promotional Assets & Links */}
-            <div>
-              <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
-                Promotional Assets
-              </h3>
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-[#8D99AE] mb-0.5">Registration Link</p>
-                  <p className="text-sm font-medium text-white truncate max-w-md">
-                    {selectedEvent.external_registration_link ||
-                      selectedEvent.registration_link ||
-                      "No external link provided"}
-                  </p>
-                </div>
-                {(selectedEvent.external_registration_link || selectedEvent.registration_link) && (
-                  <a
-                    href={selectedEvent.external_registration_link || selectedEvent.registration_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-none text-white text-xs flex items-center gap-1.5 transition-colors"
-                  >
-                    Open <ExternalLink className="size-3.5" />
-                  </a>
-                )}
-              </div>
+            <div className="bg-[#16203D] border border-white/10 overflow-x-auto rounded-none">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#0E1733] border-b border-white/10 text-[10px] font-mono text-[#FDB813] uppercase">
+                    <th className="p-3.5">Account ID</th>
+                    <th className="p-3.5">Facilitator Name</th>
+                    <th className="p-3.5">Institutional Email</th>
+                    <th className="p-3.5">Organization</th>
+                    <th className="p-3.5">Activity</th>
+                    <th className="p-3.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {filteredFacilitators.map((acc) => (
+                    <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+                      <td className="p-3.5 font-mono text-slate-400">{acc.id}</td>
+                      <td className="p-3.5 font-semibold text-white">{acc.full_name}</td>
+                      <td className="p-3.5 text-slate-300">{acc.email}</td>
+                      <td className="p-3.5 text-[#FDB813] font-medium">{acc.organization}</td>
+                      <td className="p-3.5 text-slate-400">{acc.last_active}</td>
+                      <td className="p-3.5">
+                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                          ● {acc.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-
-          {/* Cryptographic Non-Repudiation Ledger (UC-03 / RA 8792) */}
-          {selectedEvent.status === "approved" && (
-            <div className="mx-6 mb-3 p-4 rounded-none bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
-                  🔒 Tamper-Evident Institutional Clearance Ledger
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-none bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                  RA 8792 Compliant
-                </span>
-              </div>
-              <div className="font-mono text-[10px] text-white/80 break-all bg-black/40 p-2.5 rounded-none border border-white/5">
-                SHA-256: {selectedEvent.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-[#8D99AE] pt-0.5">
-                <span>Cleared by: Institutional Coordinator Authority</span>
-                <span className="text-emerald-400 font-medium">✓ Syndicated to Events Mobile App</span>
-              </div>
-            </div>
-          )}
-
-          {/* Fixed Decision Footer Actions */}
-          <div className="p-5 border-t border-white/10 bg-[#0E1733] flex items-center justify-end gap-3">
-            <button
-              onClick={() => handleUpdateStatus("rejected")}
-              disabled={actionLoading}
-              className="px-5 py-2.5 rounded-none border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-            >
-              Reject
-            </button>
-            <button
-              onClick={() => setShowRevisionModal(true)}
-              disabled={actionLoading}
-              className="px-5 py-2.5 rounded-none border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-            >
-              Needs Revision
-            </button>
-            <button
-              onClick={() => handleUpdateStatus("approved")}
-              disabled={actionLoading}
-              className="px-6 py-2.5 rounded-none bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-sm"
-            >
-              <CheckCircle2 className="size-4" />
-              ✓ Endorse & Sign (SHA-256)
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 flex items-center justify-center text-[#8D99AE] text-sm">
-          Select an event from the left queue to view details.
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Revision Modal */}
       {showRevisionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-[#16203D] border border-white/15 rounded-none p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-[#16203D] border border-white/15 rounded-none p-6 shadow-2xl text-left">
             <h3 className="text-base font-bold text-white mb-2">Request Revisions</h3>
             <p className="text-xs text-[#8D99AE] mb-4">
               Enter the feedback or document corrections required by the SAO Office:
