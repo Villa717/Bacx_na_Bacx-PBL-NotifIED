@@ -1,43 +1,30 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Download, ExternalLink, Eye, EyeOff, Menu, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import {
-  Calendar,
-  Building2,
-  Clock,
-  CheckCircle2,
-  ExternalLink,
-  RefreshCw,
-  Inbox,
-  Eye,
-  EyeOff,
-  LogOut,
-  AlertCircle,
-  ClipboardCheck,
-  MessageSquarePlus,
-  BarChart3,
-  Plus,
-  Trash2,
-  Send,
-  Users,
-  TrendingUp,
-  Download,
-  FileText,
-  Menu,
-  X,
-} from "lucide-react";
-import {
-  BarChart,
   Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
 } from "recharts";
 import { supabase } from "../../lib/supabase";
 
+// Point this at your published privacy notice (the sign-up form collects name and email).
+const PRIVACY_URL = "/privacy";
+
 // ============================================================================
-// TYPES & INTERFACES (Aligned with Supabase `events` schema & UC 03, 04, 06)
+// TYPES
 // ============================================================================
+
+export interface Precheck {
+  adviser_signature: boolean;
+  requirements_met: boolean;
+  waivers_attached: boolean;
+  notes?: string;
+}
 
 export interface EventRecord {
   event_id: number;
@@ -48,21 +35,21 @@ export interface EventRecord {
   end_time: string;
   venue: string;
   description: string;
-  tags?: string[];
   status: "pending" | "approved" | "revision" | "needs_revision" | "completed" | "rejected";
-  urgency_tier?: "P1" | "P2" | "P3";
   admin_feedback?: string;
   external_registration_link?: string;
   registration_link?: string;
   proposed_attendees?: number;
   accepted_attendees?: number;
-  created_at?: string;
+  precheck?: Precheck; // render only when the backend supplies a real result
 }
+
+type QuestionType = "rating" | "text" | "yes_no";
 
 interface SurveyQuestion {
   id: string;
   prompt: string;
-  type: "rating" | "text" | "yes_no";
+  type: QuestionType;
 }
 
 interface EventSurvey {
@@ -74,80 +61,119 @@ interface EventSurvey {
   responsesCount: number;
   targetAudience: number;
   avgSatisfaction: number;
+  summary?: string;
   questions: SurveyQuestion[];
-  aiSentimentSummary: string;
+}
+
+interface DeptHeadUser {
+  fullName: string;
+  department: string;
+  email: string;
 }
 
 type DeptNavView = "Proposal Approvals" | "Event Surveys" | "Event Reports";
 
 // ============================================================================
-// FALLBACK DATA (Used if Supabase table is empty or unconfigured)
+// DESIGN TOKENS (one blue for actions; green/amber/red are reserved for status)
+//   canvas #F2F4F7 · surface #FFF · ink #18212F · muted #5B6678 · line #DDE2EA
+//   primary #24408E  · endorsed #1F7A4D · revision #8A5A00 · rejected #B3261E
+// All text pairs below meet WCAG AA (4.5:1) on their backgrounds.
 // ============================================================================
 
-const FALLBACK_EVENTS: EventRecord[] = [
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#24408E]/40";
+const focusRingLight =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70";
+const btn = `inline-flex items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnPrimary = `${btn} bg-[#24408E] text-white hover:bg-[#1B3270]`;
+const btnOutline = `${btn} border border-[#C9D0DB] bg-white text-[#18212F] hover:bg-[#F2F4F7]`;
+const btnDanger = `${btn} border border-[#E2B3AF] bg-white text-[#B3261E] hover:bg-[#FBEDEC]`;
+const input = `w-full rounded-md border border-[#C9D0DB] bg-white px-3 py-2 text-sm text-[#18212F] placeholder:text-[#6B778A] focus-visible:border-[#24408E] ${focusRing}`;
+
+const STATUS: Record<string, { label: string; cls: string }> = {
+  pending: { label: "Pending", cls: "bg-[#EAEFFA] text-[#24408E]" },
+  approved: { label: "Endorsed", cls: "bg-[#E6F3EC] text-[#1F7A4D]" },
+  completed: { label: "Completed", cls: "bg-[#E6F3EC] text-[#1F7A4D]" },
+  revision: { label: "Needs revision", cls: "bg-[#FFF4DC] text-[#8A5A00]" },
+  needs_revision: { label: "Needs revision", cls: "bg-[#FFF4DC] text-[#8A5A00]" },
+  rejected: { label: "Rejected", cls: "bg-[#FBEDEC] text-[#B3261E]" },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS[status] ?? STATUS.pending;
+  return (
+    <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
+  );
+}
+
+// ============================================================================
+// SAMPLE DATA (shown only when the database is unreachable or empty)
+// ============================================================================
+
+const inDays = (n: number) => new Date(Date.now() + n * 864e5).toISOString().split("T")[0];
+
+const SAMPLE_EVENTS: EventRecord[] = [
   {
     event_id: 101,
     title: "Cybersecurity & Digital Forensics Symposium 2026",
-    organization: "JISSA - Junior Information Security Student Association",
-    event_date: new Date(Date.now() + 36 * 3600 * 1000).toISOString().split("T")[0],
+    organization: "Junior Information Security Student Association",
+    event_date: inDays(2),
     start_time: "1:00 PM",
     end_time: "5:00 PM",
     venue: "Multi-Purpose Hall 1",
     description:
-      "Hands-on threat hunting workshop and live incident response simulation led by industry security analysts for BSCS-SF and BSIT students.",
-    tags: ["BSCS-SF", "BSIT", "Cybersecurity", "Workshop"],
+      "Hands-on threat hunting workshop and live incident response simulation for computing students.",
     status: "pending",
     proposed_attendees: 180,
     accepted_attendees: 164,
-    external_registration_link: "https://forms.office.com/r/apc-cyber-symposium",
+    external_registration_link: "https://forms.office.com/r/campussync-cyber-symposium",
+    precheck: {
+      adviser_signature: true,
+      requirements_met: true,
+      waivers_attached: false,
+      notes: "Waiver forms were not found in the submitted packet.",
+    },
   },
   {
     event_id: 102,
-    title: "AWS Cloud Architecture Bootcamp",
-    organization: "APC Cloud Computing Society",
-    event_date: new Date(Date.now() + 6 * 24 * 3600 * 1000).toISOString().split("T")[0],
+    title: "Cloud Architecture & DevOps Bootcamp",
+    organization: "Campus Cloud Computing Society",
+    event_date: inDays(6),
     start_time: "9:00 AM",
     end_time: "4:00 PM",
     venue: "Computer Lab 402",
     description:
-      "Full-day cloud deployment lab covering EC2, S3, IAM policies, and serverless microservice design.",
-    tags: ["Cloud", "AWS", "2nd Year", "3rd Year"],
+      "Full-day lab covering compute instances, storage, IAM policies, and microservice design.",
     status: "pending",
     proposed_attendees: 95,
     accepted_attendees: 88,
-    external_registration_link: "https://forms.office.com/r/apc-aws-bootcamp",
+    precheck: { adviser_signature: true, requirements_met: true, waivers_attached: true },
   },
   {
     event_id: 103,
     title: "Inter-Departmental Hackathon: Smart Campus",
     organization: "Computer Science Society",
-    event_date: new Date(Date.now() + 18 * 24 * 3600 * 1000).toISOString().split("T")[0],
+    event_date: inDays(18),
     start_time: "8:00 AM",
     end_time: "6:00 PM",
-    venue: "Auditorium",
-    description:
-      "10-hour rapid prototyping challenge focused on IoT, campus sustainability, and student productivity tools.",
-    tags: ["Hackathon", "IoT", "All SCIT"],
+    venue: "Main Auditorium",
+    description: "Ten-hour prototyping challenge on IoT, sustainability, and student productivity tools.",
     status: "approved",
     proposed_attendees: 250,
     accepted_attendees: 232,
-    external_registration_link: "https://forms.office.com/r/smart-campus-hack",
   },
   {
     event_id: 104,
     title: "Freshmen Tech Orientation & Org Fair",
-    organization: "SCIT Student Council",
-    event_date: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString().split("T")[0],
+    organization: "Department Student Council",
+    event_date: inDays(-5),
     start_time: "10:00 AM",
     end_time: "3:00 PM",
     venue: "Main Lobby & Plaza",
-    description:
-      "Departmental welcome assembly introducing incoming students to faculty advisers, lab facilities, and accredited student organizations.",
-    tags: ["Freshmen", "Orientation"],
+    description: "Welcome assembly introducing incoming students to advisers, labs, and student organizations.",
     status: "completed",
     proposed_attendees: 320,
     accepted_attendees: 298,
-    external_registration_link: "https://forms.office.com/r/scit-frosh-fair",
   },
 ];
 
@@ -156,17 +182,17 @@ const INITIAL_SURVEYS: EventSurvey[] = [
     id: "SRV-01",
     eventId: 104,
     eventTitle: "Freshmen Tech Orientation & Org Fair",
-    organization: "SCIT Student Council",
+    organization: "Department Student Council",
     status: "active",
     responsesCount: 241,
     targetAudience: 298,
     avgSatisfaction: 4.7,
-    aiSentimentSummary:
-      "89% positive sentiment. Students praised the live lab demos and peer mentoring booths; 14% suggested extending Q&A time with program directors.",
+    summary:
+      "Students praised the live lab demos and peer mentoring booths; some asked for more Q&A time with faculty.",
     questions: [
-      { id: "q1", prompt: "How relevant was the departmental orientation to your academic track?", type: "rating" },
-      { id: "q2", prompt: "Did the organization booths clearly explain membership opportunities?", type: "yes_no" },
-      { id: "q3", prompt: "What topics would you like covered in future departmental assemblies?", type: "text" },
+      { id: "q1", prompt: "How relevant was the orientation to your academic track?", type: "rating" },
+      { id: "q2", prompt: "Did the organization booths clearly explain how to join?", type: "yes_no" },
+      { id: "q3", prompt: "What topics should future assemblies cover?", type: "text" },
     ],
   },
   {
@@ -178,89 +204,241 @@ const INITIAL_SURVEYS: EventSurvey[] = [
     responsesCount: 0,
     targetAudience: 232,
     avgSatisfaction: 0,
-    aiSentimentSummary:
-      "Survey queued for automated dispatch upon event check-out completion.",
     questions: [
-      { id: "q1", prompt: "Rate the quality of technical mentorship and Wi-Fi stability during the sprint.", type: "rating" },
-      { id: "q2", prompt: "Would you participate in a 24-hour regional collegiate hackathon next term?", type: "yes_no" },
+      { id: "q1", prompt: "Rate the technical mentorship and network stability.", type: "rating" },
+      { id: "q2", prompt: "Would you join a 24-hour regional hackathon next term?", type: "yes_no" },
     ],
   },
 ];
 
 // ============================================================================
-// HELPER FUNCTIONS (Matching Admin App.tsx)
+// HELPERS
 // ============================================================================
 
-function getLeadTimeBadge(dateStr: string) {
-  if (!dateStr) return { text: "No date", isUrgent: false };
-  const target = new Date(dateStr).getTime();
-  const now = new Date().getTime();
-  const diffHours = Math.round((target - now) / (1000 * 60 * 60));
+const hoursUntil = (d?: string) => (d ? (new Date(d).getTime() - Date.now()) / 36e5 : null);
 
-  if (diffHours <= 0) return { text: "Passed", isUrgent: false };
-  if (diffHours <= 48) return { text: `In ${diffHours}h`, isUrgent: true };
-  if (diffHours <= 96) return { text: `In ${Math.round(diffHours / 24)}d`, isUrgent: true };
-  return { text: `In ${Math.round(diffHours / 24)}d`, isUrgent: false };
+function urgencyOf(d?: string): { tier: "P1" | "P2" | "P3"; label: string; color: string } {
+  const h = hoursUntil(d);
+  if (h !== null && h <= 72) return { tier: "P1", label: "P1 High", color: "text-[#B3261E]" };
+  if (h !== null && h <= 336) return { tier: "P2", label: "P2 Medium", color: "text-[#8A5A00]" };
+  return { tier: "P3", label: "P3 Standard", color: "text-[#5B6678]" };
 }
 
-function computeDynamicUrgency(dateStr: string | null): {
-  tier: "P1" | "P2" | "P3";
-  label: string;
-  style: string;
-} {
-  if (!dateStr) {
-    return {
-      tier: "P3",
-      label: "P3 STD",
-      style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-none",
-    };
+function leadTime(d?: string) {
+  const h = hoursUntil(d);
+  if (h === null) return "No date";
+  if (h <= 0) return "Passed";
+  return h <= 48 ? `In ${Math.round(h)}h` : `In ${Math.round(h / 24)}d`;
+}
+
+const formatDate = (d?: string) =>
+  d
+    ? new Date(`${d}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })
+    : "No date set";
+
+const nameFromEmail = (email: string) =>
+  (email.split("@")[0] || "Department Head").replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+function initialsOf(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "DH";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const KEYS = {
+  session: "campussync_depthead_logged_in",
+  user: "campussync_depthead_user",
+  email: "campussync_depthead_remembered_email",
+  accounts: "campussync_depthead_accounts",
+};
+
+function readAccounts(): Record<string, DeptHeadUser> {
+  try {
+    return JSON.parse(localStorage.getItem(KEYS.accounts) || "{}");
+  } catch {
+    return {};
   }
-
-  const target = new Date(dateStr).getTime();
-  const now = new Date().getTime();
-  const diffHours = (target - now) / (1000 * 60 * 60);
-
-  if (diffHours <= 96) {
-    return {
-      tier: "P1",
-      label: "P1 HIGH",
-      style: "bg-red-500/20 text-red-400 border border-red-500/40 rounded-none",
-    };
-  }
-
-  if (diffHours <= 336) {
-    return {
-      tier: "P2",
-      label: "P2 MED",
-      style: "bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-none",
-    };
-  }
-
-  return {
-    tier: "P3",
-    label: "P3 STD",
-    style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-none",
-  };
 }
 
 // ============================================================================
-// MAIN ENTRY COMPONENT: DepartmentHeadPortal (Exact Admin Login & Shell)
+// SHARED UI
 // ============================================================================
+
+function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-[#18212F]">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#18212F]/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
+      >
+        <h2 className="mb-4 font-serif text-lg font-semibold text-[#18212F]">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PORTAL: sign in / create account
+// ============================================================================
+
+// ============================================================================
+// SKELETONS (shown only on the first load, while there is nothing to display yet)
+// ============================================================================
+
+function Skel({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`animate-pulse rounded bg-[#DDE2EA] motion-reduce:animate-none ${className}`}
+    />
+  );
+}
+
+function QueueSkeleton() {
+  const titleWidths = ["w-3/5", "w-4/5", "w-2/3", "w-1/2", "w-3/4"];
+  return (
+    <>
+      <li className="sr-only">Loading proposals…</li>
+      {titleWidths.map((w, i) => (
+        <li key={i} aria-hidden="true" className="border-b border-[#DDE2EA] px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <Skel className={`h-4 ${w}`} />
+            <Skel className="h-5 w-16" />
+          </div>
+          <Skel className="mt-2 h-3 w-2/5" />
+          <div className="mt-3 flex justify-between">
+            <Skel className="h-3 w-20" />
+            <Skel className="h-3 w-24" />
+          </div>
+        </li>
+      ))}
+    </>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="flex-1 space-y-8 p-6 md:p-8" aria-busy="true">
+      <p className="sr-only" role="status">
+        Loading proposal details…
+      </p>
+      <div className="space-y-3">
+        <Skel className="h-7 w-2/3" />
+        <Skel className="h-4 w-1/3" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 border-y border-[#DDE2EA] py-4 sm:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="space-y-2">
+            <Skel className="h-3 w-12" />
+            <Skel className="h-4 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <Skel className="h-4 w-20" />
+        <Skel className="h-28 w-full" />
+      </div>
+      <div className="max-w-prose space-y-2">
+        <Skel className="h-4 w-24" />
+        <Skel className="h-3 w-full" />
+        <Skel className="h-3 w-5/6" />
+        <Skel className="h-3 w-2/3" />
+      </div>
+    </div>
+  );
+}
+
+function ReportsSkeleton() {
+  return (
+    <div className="flex-1 space-y-8 overflow-y-auto p-6 md:p-8" aria-busy="true">
+      <p className="sr-only" role="status">
+        Loading reports…
+      </p>
+      <Skel className="h-8 w-48" />
+      <div className="grid grid-cols-2 gap-4 border-y border-[#DDE2EA] py-4 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="space-y-2">
+            <Skel className="h-3 w-20" />
+            <Skel className="h-7 w-16" />
+          </div>
+        ))}
+      </div>
+      <Skel className="h-64 w-full" />
+      <div className="divide-y divide-[#DDE2EA] rounded-md border border-[#DDE2EA] bg-white">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center justify-between gap-4 px-4 py-3">
+            <div className="flex-1 space-y-2">
+              <Skel className="h-4 w-1/2" />
+              <Skel className="h-3 w-1/4" />
+            </div>
+            <Skel className="h-4 w-16" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function DepartmentHeadPortal() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [currentUser, setCurrentUser] = useState<DeptHeadUser>({
+    fullName: "",
+    department: "Department Head",
+    email: "",
+  });
+  const [fullName, setFullName] = useState("");
+  const [department, setDepartment] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
+  const [consent, setConsent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    const savedSession = localStorage.getItem("notified_depthead_logged_in");
-    const savedEmail = localStorage.getItem("notified_depthead_remembered_email");
-
-    if (savedSession === "true") {
-      setIsLoggedIn(true);
+    const savedUserRaw = localStorage.getItem(KEYS.user);
+    const savedEmail = localStorage.getItem(KEYS.email);
+    if (savedUserRaw) {
+      try {
+        setCurrentUser(JSON.parse(savedUserRaw) as DeptHeadUser);
+        if (localStorage.getItem(KEYS.session) === "true") setIsLoggedIn(true);
+      } catch {
+        /* ignore corrupt data */
+      }
     }
     if (savedEmail) {
       setEmail(savedEmail);
@@ -268,215 +446,219 @@ export default function DepartmentHeadPortal() {
     }
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage("");
-
-    const trimmedEmail = email.trim().toLowerCase();
-    const trimmedPassword = password.trim();
-
-    if (!trimmedEmail || !trimmedPassword) {
-      setErrorMessage("Please enter both email and password.");
-      return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(trimmedEmail)) {
-      setErrorMessage("Please enter a valid email address.");
-      return;
-    }
-
-    const isValid =
-      (trimmedEmail === "depthead@apc.edu.ph" && trimmedPassword === "depthead123") ||
-      (trimmedEmail.endsWith("@apc.edu.ph") && trimmedPassword.length >= 6);
-
-    if (!isValid) {
-      setErrorMessage("Invalid credentials. Try depthead@apc.edu.ph / depthead123");
-      return;
-    }
-
+  const finishLogin = (user: DeptHeadUser) => {
+    setCurrentUser(user);
+    localStorage.setItem(KEYS.user, JSON.stringify(user));
     if (rememberMe) {
-      localStorage.setItem("notified_depthead_remembered_email", trimmedEmail);
-      localStorage.setItem("notified_depthead_logged_in", "true");
+      localStorage.setItem(KEYS.email, user.email);
+      localStorage.setItem(KEYS.session, "true");
     } else {
-      localStorage.removeItem("notified_depthead_remembered_email");
-      localStorage.removeItem("notified_depthead_logged_in");
+      localStorage.removeItem(KEYS.email);
+      localStorage.removeItem(KEYS.session);
     }
-
     setIsLoggedIn(true);
     setPassword("");
   };
 
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage("");
+    const mail = email.trim().toLowerCase();
+    const pass = password.trim();
+
+    if (!mail || !pass) return setErrorMessage("Enter your email address and password.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return setErrorMessage("Enter a valid email address.");
+    if (pass.length < 6) return setErrorMessage("Password must be at least 6 characters.");
+
+    if (authMode === "signup") {
+      if (!fullName.trim() || !department.trim())
+        return setErrorMessage("Enter your full name and department.");
+      if (!consent) return setErrorMessage("Please accept the privacy notice to create an account.");
+      const user: DeptHeadUser = { fullName: fullName.trim(), department: department.trim(), email: mail };
+      localStorage.setItem(KEYS.accounts, JSON.stringify({ ...readAccounts(), [mail]: user }));
+      return finishLogin(user);
+    }
+
+    finishLogin(
+      readAccounts()[mail] ?? { fullName: nameFromEmail(mail), department: "Department Head", email: mail }
+    );
+  };
+
   const handleLogout = () => {
-    localStorage.removeItem("notified_depthead_logged_in");
+    localStorage.removeItem(KEYS.session);
     setIsLoggedIn(false);
     setPassword("");
     setErrorMessage("");
   };
 
-  if (!isLoggedIn) {
+  if (isLoggedIn) {
     return (
-      <div className="min-h-screen w-full relative flex flex-col justify-between p-6 md:p-10 font-sans text-white bg-[#0B132B] overflow-x-hidden">
-        {/* Top Header Navigation (Identical to Admin App.tsx) */}
-        <header className="w-full flex items-center justify-between z-10 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="size-9 bg-[#0B132B] flex items-center justify-center font-black text-[#FFD000] text-lg border border-white/10 shadow-md rounded-none">
-              N
-            </div>
-            <div className="text-left">
-              <div className="flex items-center gap-2">
-                <span className="font-black text-lg text-white tracking-tight">NotifiED</span>
-                <span className="bg-[#0B132B] text-[#FFD000] text-[10px] font-mono font-bold px-2 py-0.5 uppercase tracking-wider border border-white/10 rounded-none">
-                  DEPT HEAD
-                </span>
-              </div>
-              <p className="text-[11px] text-white/80 font-medium">Enterprise Clearance System</p>
-            </div>
-          </div>
-
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#0B132B] border border-white/15 text-white text-xs font-semibold shadow-md rounded-none">
-            <span className="size-2 bg-emerald-400"></span>
-            NOTIFIED: DEPARTMENT HEAD
-          </div>
-        </header>
-
-        {/* Main Left-Weighted Auth Terminal (Identical to Admin App.tsx) */}
-        <main className="w-full my-auto py-8 z-10 flex items-center justify-start lg:pl-16">
-          <div className="w-full max-w-[440px] bg-[#0E1528] border border-white/10 shadow-2xl p-8 md:p-10 text-left rounded-none">
-            <div className="flex items-center justify-between text-[10px] font-mono tracking-widest text-[#FFD000] mb-3 uppercase">
-              <span>AUTHORIZED CLEARANCE ACCESS</span>
-              <span className="text-white/40">v2.4 SECURE</span>
-            </div>
-
-            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 tracking-tight">
-              Department Head Login
-            </h1>
-            <p className="text-xs text-[#8D99AE] mb-6">
-              Endorse academic proposals, manage event surveys, and inspect reports.
-            </p>
-
-            {errorMessage && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2 rounded-none">
-                <AlertCircle className="size-4 shrink-0 mt-0.5" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
-                  INSTITUTIONAL EMAIL
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="depthead@apc.edu.ph"
-                  className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition rounded-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-mono tracking-wider text-slate-300 uppercase block mb-1.5">
-                  PASSWORD
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full px-3.5 py-2.5 bg-[#080D1A] border border-white/15 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-[#FFD000] transition rounded-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-xs pt-1">
-                <label className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="bg-[#080D1A] border-white/20 text-[#FFD000] focus:ring-0 cursor-pointer rounded-none"
-                  />
-                  Remember Me
-                </label>
-                <span className="text-[#FFD000] hover:underline cursor-pointer text-xs">
-                  Forgot Password?
-                </span>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-extrabold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition shadow-lg cursor-pointer mt-4 rounded-none"
-              >
-                SIGN IN TO DEPARTMENT PORTAL →
-              </button>
-            </form>
-
-            <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/50">
-              <span className="flex items-center gap-1.5">
-                <span className="size-1.5 bg-[#FFD000]"></span>
-                Campus Clearance Portal
-              </span>
-              <span>SCIT Department</span>
-            </div>
-          </div>
-        </main>
-
-        <div className="h-4 z-10 shrink-0"></div>
+      <div className="h-screen w-full bg-[#F2F4F7] font-sans text-[#18212F]">
+        <DepartmentHeadInterface currentUser={currentUser} onLogout={handleLogout} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen h-screen w-full flex flex-col bg-[#0B132B]">
-      {/* Top Banner Header (Identical to Admin App.tsx) */}
-      <header className="h-12 bg-[#0E1733] px-6 flex items-center justify-between text-xs text-white z-30 shadow-md border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400">Portal:</span>
-          <span className="font-bold text-blue-400 uppercase tracking-wide">
-            NotifiED Department Head Portal
-          </span>
+    <div className="flex min-h-screen items-center justify-center bg-[#F2F4F7] p-6 font-sans text-[#18212F]">
+      <div className="w-full max-w-sm">
+        <p className="mb-5 font-serif text-2xl font-semibold">CampusSync</p>
+        <div className="rounded-lg border border-[#DDE2EA] border-t-4 border-t-[#24408E] bg-white p-6">
+          <div role="tablist" className="mb-5 flex gap-5 border-b border-[#DDE2EA]">
+            {(["signin", "signup"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={authMode === mode}
+                onClick={() => {
+                  setAuthMode(mode);
+                  setErrorMessage("");
+                }}
+                className={`-mb-px border-b-2 pb-2 text-sm font-medium cursor-pointer ${focusRing} ${
+                  authMode === mode
+                    ? "border-[#24408E] text-[#24408E]"
+                    : "border-transparent text-[#5B6678] hover:text-[#18212F]"
+                }`}
+              >
+                {mode === "signin" ? "Sign in" : "Create account"}
+              </button>
+            ))}
+          </div>
+
+          {errorMessage && (
+            <p role="alert" className="mb-4 rounded-md bg-[#FBEDEC] px-3 py-2 text-sm text-[#B3261E]">
+              {errorMessage}
+            </p>
+          )}
+
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {authMode === "signup" && (
+              <>
+                <Field id="full-name" label="Full name">
+                  <input
+                    id="full-name"
+                    required
+                    autoComplete="name"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className={input}
+                  />
+                </Field>
+                <Field id="department" label="Department">
+                  <input
+                    id="department"
+                    required
+                    autoComplete="organization-title"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className={input}
+                  />
+                </Field>
+              </>
+            )}
+
+            <Field id="email" label="Email address">
+              <input
+                id="email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={input}
+              />
+            </Field>
+
+            <Field id="password" label="Password">
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  autoComplete={authMode === "signin" ? "current-password" : "new-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={`${input} pr-10`}
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((v) => !v)}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[#5B6678] hover:text-[#18212F] cursor-pointer ${focusRing}`}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </Field>
+
+            <label className="flex items-center gap-2 text-sm text-[#18212F] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="size-4 accent-[#24408E]"
+              />
+              Keep me signed in on this device
+            </label>
+
+            {authMode === "signup" && (
+              <label className="flex items-start gap-2 text-sm text-[#18212F] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="mt-0.5 size-4 accent-[#24408E]"
+                />
+                <span>
+                  I agree to the{" "}
+                  <a href={PRIVACY_URL} target="_blank" rel="noreferrer" className="text-[#24408E] underline">
+                    privacy notice
+                  </a>{" "}
+                  for how my name and email are used.
+                </span>
+              </label>
+            )}
+
+            <button type="submit" className={`${btnPrimary} w-full`}>
+              {authMode === "signin" ? "Sign in" : "Create account"}
+            </button>
+          </form>
         </div>
-
-        <button
-          onClick={handleLogout}
-          className="px-3 py-1 rounded-none bg-white/10 hover:bg-white/20 text-white font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-        >
-          <LogOut className="size-3.5" />
-          Exit to Login
-        </button>
-      </header>
-
-      {/* Main Workspace */}
-      <main className="flex-1 flex overflow-hidden">
-        <DepartmentHeadInterface />
-      </main>
+      </div>
     </div>
   );
 }
 
 // ============================================================================
-// MAIN WORKSPACE: DepartmentHeadInterface (Exact Admin Sidebar + UC 03, 04, 06)
+// WORKSPACE
 // ============================================================================
 
-export function DepartmentHeadInterface() {
+export function DepartmentHeadInterface({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: DeptHeadUser;
+  onLogout?: () => void;
+}) {
   const [activeView, setActiveView] = useState<DeptNavView>("Proposal Approvals");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
+  const [collapsed, setCollapsed] = useState(false); // desktop
+  const openSidebar = () => {
+    setSidebarOpen(true);
+    setCollapsed(false);
+  };
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    setCollapsed(true);
+  };
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [usingSample, setUsingSample] = useState(false);
   const [surveys, setSurveys] = useState<EventSurvey[]>(INITIAL_SURVEYS);
+
+  const displayName = currentUser?.fullName?.trim() || "Department Head";
+  const displayDept = currentUser?.department?.trim() || "Academic Department";
 
   const fetchQueue = async () => {
     setLoading(true);
@@ -485,141 +667,85 @@ export function DepartmentHeadInterface() {
         .from("events")
         .select("*")
         .order("event_id", { ascending: false });
-
       if (error || !data || data.length === 0) {
-        setEvents(FALLBACK_EVENTS);
+        setEvents(SAMPLE_EVENTS);
+        setUsingSample(true);
       } else {
         setEvents(data as EventRecord[]);
+        setUsingSample(false);
       }
     } catch {
-      setEvents(FALLBACK_EVENTS);
+      setEvents(SAMPLE_EVENTS);
+      setUsingSample(true);
     }
     setLoading(false);
   };
 
   useEffect(() => {
     fetchQueue();
-
     const channel = supabase
-      .channel("dept-head-events-channel")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "events" },
-        () => {
-          fetchQueue();
-        }
-      )
+      .channel("campussync-depthead-events")
+      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, () => fetchQueue())
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
 
   const pendingCount = events.filter((e) => e.status === "pending").length;
+  const nav: { label: DeptNavView; badge?: number }[] = [
+    { label: "Proposal Approvals", badge: pendingCount || undefined },
+    { label: "Event Surveys" },
+    { label: "Event Reports" },
+  ];
 
   return (
-    <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
-      {/* Mobile Sidebar Backdrop (Exact match to Admin sidebar-navigation.tsx) */}
+    <div className="flex h-full w-full overflow-hidden">
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 z-40 lg:hidden backdrop-blur-sm"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-[#18212F]/50 lg:hidden" onClick={closeSidebar} />
       )}
 
-      {/* ── LEFT SIDEBAR (Exact Match to Admin sidebar-navigation.tsx) ── */}
       <aside
-        className={`
-          fixed lg:static inset-y-0 left-0 z-50
-          w-72 bg-[#090F1F] flex flex-col
-          border-r border-white/[0.04]
-          transform transition-transform duration-300 ease-in-out lg:transform-none shrink-0
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-        `}
+        className={`fixed inset-y-0 left-0 z-50 flex w-56 shrink-0 flex-col bg-[#1C2D63] text-white transition-transform lg:static lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        } ${collapsed ? "lg:hidden" : ""}`}
       >
-        {/* Brand Header */}
-        <div className="px-6 py-5 border-b border-white/[0.04] flex items-center justify-between flex-shrink-0">
-          <div>
-            <div className="flex items-baseline gap-0.5">
-              <span className="font-serif text-xl font-semibold text-white tracking-tight">
-                Notifi
-              </span>
-              <span className="font-serif text-xl font-bold text-[#FDB813] tracking-tight">
-                ED
-              </span>
-            </div>
-            <p className="text-[11px] text-[#8D99AE] mt-0.5 tracking-wide">
-              Department Head Console
-            </p>
-          </div>
+        <div className="flex items-center justify-between px-5 py-5">
+          <span className="flex items-center gap-2 font-serif text-xl font-semibold">
+            <span className="size-2.5 rounded-sm bg-[#F2B84B]" aria-hidden="true" />
+            CampusSync
+          </span>
           <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg text-[#8D99AE] hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            type="button"
+            aria-label="Close sidebar"
+            onClick={closeSidebar}
+            className={`rounded p-1.5 text-[#B8C3E3] hover:bg-white/10 hover:text-white cursor-pointer ${focusRingLight}`}
           >
-            <X className="w-4 h-4" />
+            <X className="size-4" />
           </button>
         </div>
 
-        {/* Navigation Label */}
-        <div className="px-6 pt-6 pb-2">
-          <p className="text-[10px] font-semibold text-[#8D99AE]/60 uppercase tracking-widest">
-            Navigation
-          </p>
-        </div>
-
-        {/* Nav Items (UC 03, UC 04, UC 06) */}
-        <nav className="flex-1 px-3 pb-4 overflow-y-auto space-y-0.5">
-          {[
-            {
-              label: "Proposal Approvals" as DeptNavView,
-              icon: ClipboardCheck,
-              badge: pendingCount > 0 ? pendingCount : undefined,
-            },
-            {
-              label: "Event Surveys" as DeptNavView,
-              icon: MessageSquarePlus,
-              badge: surveys.length,
-            },
-            {
-              label: "Event Reports" as DeptNavView,
-              icon: BarChart3,
-            },
-          ].map(({ label, icon: Icon, badge }) => {
+        <nav aria-label="Main" className="flex-1 space-y-0.5 px-2">
+          {nav.map(({ label, badge }) => {
             const active = activeView === label;
             return (
               <button
                 key={label}
+                type="button"
+                aria-current={active ? "page" : undefined}
                 onClick={() => {
                   setActiveView(label);
                   setSidebarOpen(false);
                 }}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 cursor-pointer
-                  ${
-                    active
-                      ? "bg-[#FDB813] text-[#0B132B]"
-                      : "text-[#8D99AE] hover:bg-white/5 hover:text-white"
-                  }
-                `}
+                className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm cursor-pointer ${focusRingLight} ${
+                  active
+                    ? "bg-white/10 font-medium text-white shadow-[inset_3px_0_0_#F2B84B]"
+                    : "text-[#D5DCF0] hover:bg-white/5 hover:text-white"
+                }`}
               >
-                <Icon
-                  className={`w-[18px] h-[18px] flex-shrink-0 ${
-                    active ? "text-[#0B132B]" : ""
-                  }`}
-                />
-                <span className="flex-1 text-sm font-medium">{label}</span>
+                {label}
                 {badge !== undefined && (
-                  <span
-                    className={`
-                      text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center
-                      ${
-                        active
-                          ? "bg-[#0B132B]/20 text-[#0B132B]"
-                          : "bg-[#FDB813]/15 text-[#FDB813]"
-                      }
-                    `}
-                  >
+                  <span className="rounded-full bg-[#F2B84B] px-1.5 text-xs font-semibold text-[#1C2D63]">
                     {badge}
                   </span>
                 )}
@@ -628,38 +754,43 @@ export function DepartmentHeadInterface() {
           })}
         </nav>
 
-        {/* Divider */}
-        <div className="mx-6 border-t border-white/[0.04]" />
-
-        {/* User Profile Footer (Exact match to Admin sidebar-navigation.tsx) */}
-        <div className="p-4 flex-shrink-0">
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#FDB813] to-[#E0A96D] flex items-center justify-center flex-shrink-0">
-              <span className="text-[#0B132B] text-xs font-bold">DH</span>
+        <div className="border-t border-white/10 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold">
+              {initialsOf(displayName)}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">Dr. Rhea Santillan</p>
-              <p className="text-[11px] text-[#8D99AE] truncate">Department Head</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{displayName}</p>
+              <p className="truncate text-xs text-[#B8C3E3]">{displayDept}</p>
             </div>
-            <div className="w-2 h-2 rounded-full bg-[#22C55E] flex-shrink-0" title="Online" />
           </div>
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className={`${btn.replace(focusRing, "")} mt-3 w-full border border-white/25 text-white hover:bg-white/10 ${focusRingLight}`}
+            >
+              Sign out
+            </button>
+          )}
         </div>
       </aside>
 
-      {/* ── RIGHT CONTENT SHELL ── */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Mobile Header Trigger */}
-        <div className="lg:hidden px-4 py-3 bg-[#0E1733] border-b border-white/10 flex items-center justify-between shrink-0">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          className={`flex items-center gap-3 border-b border-[#DDE2EA] bg-white px-4 py-3 ${
+            collapsed ? "" : "lg:hidden"
+          }`}
+        >
           <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-1.5 text-white/80 hover:text-white cursor-pointer"
+            type="button"
+            aria-label="Open sidebar"
+            onClick={openSidebar}
+            className={`rounded p-1.5 text-[#24408E] hover:bg-[#EAEFFA] cursor-pointer ${focusRing}`}
           >
             <Menu className="size-5" />
           </button>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#FDB813]">
-            {activeView}
-          </span>
-          <div className="w-6" />
+          <span className="text-sm font-medium">{activeView}</span>
         </div>
 
         {activeView === "Proposal Approvals" && (
@@ -667,441 +798,333 @@ export function DepartmentHeadInterface() {
             events={events}
             setEvents={setEvents}
             loading={loading}
+            usingSample={usingSample}
             onRefresh={fetchQueue}
           />
         )}
-
         {activeView === "Event Surveys" && (
-          <EventSurveysView
-            surveys={surveys}
-            setSurveys={setSurveys}
-            events={events}
-          />
+          <EventSurveysView surveys={surveys} setSurveys={setSurveys} events={events} />
         )}
-
-        {activeView === "Event Reports" && (
-          <EventReportsView events={events} surveys={surveys} />
-        )}
+        {activeView === "Event Reports" && <EventReportsView events={events} surveys={surveys} loading={loading} />}
       </div>
     </div>
   );
 }
 
 // ============================================================================
-// VIEW 1: PROPOSAL APPROVALS (UC 03 — Exact Match to Admin CoordinatorInterface)
+// VIEW 1: PROPOSAL APPROVALS
 // ============================================================================
+
+type Tier = "ALL" | "P1" | "P2" | "P3";
 
 function ProposalApprovalsView({
   events,
   setEvents,
   loading,
+  usingSample,
   onRefresh,
 }: {
   events: EventRecord[];
   setEvents: React.Dispatch<React.SetStateAction<EventRecord[]>>;
   loading: boolean;
+  usingSample: boolean;
   onRefresh: () => Promise<void>;
 }) {
-  const [triageTier, setTriageTier] = useState<"ALL" | "P1" | "P2" | "P3">("ALL");
-  const [selectedEventId, setSelectedEventId] = useState<number | null>(
-    events[0]?.event_id ?? null
+  const [tier, setTier] = useState<Tier>("ALL");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [dialog, setDialog] = useState<null | "revision" | "reject">(null);
+  const [note, setNote] = useState("");
+
+  const queue = useMemo(
+    () =>
+      events
+        .map((e) => ({ ...e, u: urgencyOf(e.event_date) }))
+        .filter((e) => tier === "ALL" || e.u.tier === tier)
+        .sort(
+          (a, b) =>
+            Number(b.status === "pending") - Number(a.status === "pending") ||
+            a.u.tier.localeCompare(b.u.tier) ||
+            new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
+        ),
+    [events, tier]
   );
-  const [actionLoading, setActionLoading] = useState(false);
-  const [revisionFeedback, setRevisionFeedback] = useState("");
-  const [showRevisionModal, setShowRevisionModal] = useState(false);
 
-  useEffect(() => {
-    if (!selectedEventId && events.length > 0) {
-      setSelectedEventId(events[0].event_id);
-    }
-  }, [events, selectedEventId]);
+  const selected = queue.find((e) => e.event_id === selectedId) ?? queue[0] ?? null;
+  const link = selected?.external_registration_link || selected?.registration_link;
+  const pc = selected?.precheck;
 
-  const triagedEvents = events
-    .map((item) => ({
-      ...item,
-      calculatedUrgency: computeDynamicUrgency(item.event_date),
-    }))
-    .filter((item) => {
-      if (triageTier === "ALL") return true;
-      return item.calculatedUrgency.tier === triageTier;
-    })
-    .sort((a, b) => {
-      const priorityOrder: Record<string, number> = { P1: 1, P2: 2, P3: 3 };
-      const diffPriority =
-        priorityOrder[a.calculatedUrgency.tier] - priorityOrder[b.calculatedUrgency.tier];
-      if (diffPriority !== 0) return diffPriority;
-      return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
-    });
-
-  const selectedEvent =
-    events.find((e) => e.event_id === selectedEventId) || triagedEvents[0];
-
-  const handleUpdateStatus = async (
-    status: "approved" | "rejected" | "revision",
-    feedback?: string
-  ) => {
-    if (!selectedEvent) return;
-    setActionLoading(true);
-
-    const dbStatus = status === "revision" ? "needs_revision" : status;
+  const decide = async (status: "approved" | "rejected" | "needs_revision", feedback?: string) => {
+    if (!selected) return;
+    setSaving(true);
+    setError("");
+    const id = selected.event_id;
+    const previous = events;
 
     setEvents((prev) =>
-      prev.map((ev) =>
-        ev.event_id === selectedEvent.event_id
-          ? { ...ev, status: dbStatus, admin_feedback: feedback || ev.admin_feedback }
-          : ev
+      prev.map((e) =>
+        e.event_id === id ? { ...e, status, admin_feedback: feedback || e.admin_feedback } : e
       )
     );
 
-    const { error } = await supabase
-      .from("events")
-      .update({
-        status: dbStatus,
-        admin_feedback: feedback || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("event_id", selectedEvent.event_id);
-
-    if (!error) {
+    if (!usingSample) {
+      const { error: dbError } = await supabase
+        .from("events")
+        .update({ status, admin_feedback: feedback || null, updated_at: new Date().toISOString() })
+        .eq("event_id", id);
+      if (dbError) {
+        setEvents(previous);
+        setError("The decision could not be saved. Please try again.");
+        setSaving(false);
+        return;
+      }
       await onRefresh();
     }
 
-    setShowRevisionModal(false);
-    setRevisionFeedback("");
-    setActionLoading(false);
+    setDialog(null);
+    setNote("");
+    setSaving(false);
   };
 
+  const errorLine = error && (
+    <p role="alert" className="text-sm text-[#B3261E]">
+      {error}
+    </p>
+  );
+
   return (
-    <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
-      {/* ── LEFT COLUMN: Event Queue List (Identical to Admin) ── */}
-      <div className="w-[380px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
-        <div className="p-4 border-b border-white/10 space-y-3">
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <section
+        aria-label="Proposal queue"
+        className="flex shrink-0 flex-col border-b border-[#DDE2EA] bg-white max-md:max-h-60 md:w-80 md:border-b-0 md:border-r"
+      >
+        <div className="space-y-3 border-b border-[#DDE2EA] p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-                Event Queueing
-              </h1>
-              <p className="text-xs text-[#8D99AE] mt-0.5">
-                {triagedEvents.length} proposal{triagedEvents.length === 1 ? "" : "s"} in queue
+              <h1 className="font-serif text-lg font-semibold">Proposals</h1>
+              <p className="text-xs text-[#5B6678]">
+                {queue.length} shown
               </p>
             </div>
             <button
+              type="button"
+              aria-label="Refresh proposals"
               onClick={onRefresh}
-              title="Refresh from Supabase"
-              className="p-1.5 rounded-none bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
+              className={`rounded p-1.5 text-[#5B6678] hover:bg-[#F2F4F7] cursor-pointer ${focusRing}`}
             >
-              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
             </button>
           </div>
-
-          <div className="grid grid-cols-4 gap-1 p-1 bg-[#090F24] rounded-none border border-white/5 text-[11px]">
-            {(["ALL", "P1", "P2", "P3"] as const).map((tier) => (
+          <div className="flex gap-1" role="group" aria-label="Filter by urgency">
+            {(["ALL", "P1", "P2", "P3"] as const).map((t) => (
               <button
-                key={tier}
+                key={t}
                 type="button"
-                onClick={() => setTriageTier(tier)}
-                className={`py-1 rounded-none font-semibold transition text-center cursor-pointer ${
-                  triageTier === tier
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "text-[#8D99AE] hover:text-white hover:bg-white/5"
+                aria-pressed={tier === t}
+                onClick={() => setTier(t)}
+                className={`flex-1 rounded-md px-2 py-1 text-xs font-medium cursor-pointer ${focusRing} ${
+                  tier === t ? "bg-[#24408E] text-white" : "text-[#5B6678] hover:bg-[#F2F4F7]"
                 }`}
               >
-                {tier}
+                {t === "ALL" ? "All" : t}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {loading && events.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-48 text-center text-[#8D99AE]">
-              <RefreshCw className="size-6 animate-spin mb-2 text-[#4A90D9]" />
-              <p className="text-xs">Connecting to database...</p>
-            </div>
-          )}
-
-          {!loading && triagedEvents.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-64 text-center text-[#8D99AE] p-4">
-              <Inbox className="size-10 mb-3 opacity-40 text-white" />
-              <p className="text-sm font-semibold text-white">Queue is empty</p>
-              <p className="text-xs mt-1">No event proposals in this tier.</p>
-            </div>
-          )}
-
-          {triagedEvents.map((item) => {
-            const isSelected = selectedEvent?.event_id === item.event_id;
-            const leadTime = getLeadTimeBadge(item.event_date);
-            const urgency = item.calculatedUrgency;
-
+        <ul className="flex-1 overflow-y-auto" aria-busy={loading && events.length === 0}>
+          {queue.length === 0 &&
+            (loading && events.length === 0 ? (
+              <QueueSkeleton />
+            ) : (
+              <li className="p-6 text-center text-sm text-[#5B6678]">No proposals in this view.</li>
+            ))}
+          {queue.map((item) => {
+            const isSel = selected?.event_id === item.event_id;
             return (
-              <div
-                key={item.event_id}
-                onClick={() => setSelectedEventId(item.event_id)}
-                className={`p-4 rounded-none border transition-all cursor-pointer ${
-                  isSelected
-                    ? "bg-[#1C2541] border-[#FDB813] shadow-md"
-                    : "bg-[#16203D] border-white/5 hover:border-white/20"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <h3 className="font-semibold text-sm truncate text-white">{item.title}</h3>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-none border ${urgency.style}`}>
-                      {urgency.label}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-none capitalize ${
-                        item.status === "pending"
-                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                          : item.status === "approved" || item.status === "completed"
-                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          : item.status === "revision" || item.status === "needs_revision"
-                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                          : "bg-red-500/20 text-red-400 border border-red-500/30"
-                      }`}
-                    >
-                      {item.status ? item.status.replace("_", " ") : "pending"}
-                    </span>
+              <li key={item.event_id}>
+                <button
+                  type="button"
+                  aria-current={isSel}
+                  onClick={() => setSelectedId(item.event_id)}
+                  className={`w-full border-b border-[#DDE2EA] px-4 py-3 text-left cursor-pointer ${focusRing} ${
+                    isSel ? "bg-[#EAEFFA] shadow-[inset_3px_0_0_#24408E]" : "hover:bg-[#F7F8FA]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium leading-snug">{item.title}</span>
+                    <StatusBadge status={item.status} />
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-[#8D99AE] mb-2">
-                  <span className="truncate">{item.organization || "Student Org"}</span>
-                  <span className="text-[10px] font-semibold text-white/80 shrink-0">
-                    {leadTime.text}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-3 text-[11px] text-white/60 mb-2.5">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="size-3 text-[#FDB813]" /> {item.event_date || "No date set"}
-                  </span>
-                  <span className="flex items-center gap-1 truncate">
-                    <Building2 className="size-3 text-[#FDB813]" /> {item.venue || "No venue"}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-1">
-                  {(item.tags || []).slice(0, 3).map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-2 py-0.5 rounded-none bg-white/5 text-[10px] text-white/70 border border-white/5"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
+                  <p className="mt-0.5 truncate text-xs text-[#5B6678]">{item.organization}</p>
+                  <div className="mt-1.5 flex items-center justify-between text-xs text-[#5B6678]">
+                    <span>{formatDate(item.event_date)}</span>
+                    {item.status === "pending" && (
+                      <span>
+                        <span className={`font-medium ${item.u.color}`}>{item.u.label}</span>{" "}
+                        {leadTime(item.event_date)}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              </li>
             );
           })}
-        </div>
-      </div>
+        </ul>
+      </section>
 
-      {/* ── RIGHT COLUMN: Detail & Decision Pane (Identical to Admin) ── */}
-      {selectedEvent ? (
-        <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0B132B]">
-          <div className="p-7 border-b border-white/10 bg-[#0E1733] flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-2xl font-bold tracking-tight text-white">
-                  {selectedEvent.title}
-                </h2>
-                <span className="px-2.5 py-0.5 rounded-none text-xs font-semibold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  {selectedEvent.status ? selectedEvent.status.replace("_", " ") : "pending"}
-                </span>
+      {selected ? (
+        <article className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+          <div className="flex-1 space-y-8 p-6 md:p-8">
+            <header>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="font-serif text-2xl font-semibold">{selected.title}</h2>
+                <StatusBadge status={selected.status} />
               </div>
-              <p className="text-sm text-[#8D99AE]">{selectedEvent.organization || "Student Org"}</p>
-            </div>
+              <p className="mt-1 text-sm text-[#5B6678]">{selected.organization}</p>
+            </header>
+
+            <dl className="grid grid-cols-1 gap-4 border-y border-[#DDE2EA] py-4 sm:grid-cols-3">
+              {[
+                ["Date", formatDate(selected.event_date)],
+                ["Time", `${selected.start_time || "–"} to ${selected.end_time || "–"}`],
+                ["Venue", selected.venue || "No venue"],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-xs text-[#5B6678]">{k}</dt>
+                  <dd className="mt-0.5 text-sm font-medium">{v}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <section>
+              <h3 className="mb-2 text-sm font-semibold">Pre-check</h3>
+              {pc ? (
+                <>
+                  <ul className="divide-y divide-[#DDE2EA] rounded-md border border-[#DDE2EA] bg-white text-sm">
+                    {[
+                      ["Adviser endorsement", pc.adviser_signature, "Signature detected", "Signature not detected"],
+                      ["Mandatory requirements", pc.requirements_met, "Requirements met", "Requirements incomplete"],
+                      ["Waivers", pc.waivers_attached, "Waivers attached", "Waivers missing"],
+                    ].map(([label, ok, yes, no]) => (
+                      <li key={label as string} className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-[#5B6678]">{label as string}</span>
+                        <span className={`font-medium ${ok ? "text-[#1F7A4D]" : "text-[#8A5A00]"}`}>
+                          {ok ? (yes as string) : (no as string)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {pc.notes && <p className="mt-2 text-sm text-[#5B6678]">{pc.notes}</p>}
+                </>
+              ) : (
+                <p className="text-sm text-[#5B6678]">No pre-check result is recorded for this proposal.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-semibold">Description</h3>
+              <p className="max-w-prose text-sm leading-relaxed">
+                {selected.description || "No description provided."}
+              </p>
+            </section>
+
+            {link && (
+              <section>
+                <h3 className="mb-2 text-sm font-semibold">Registration link</h3>
+                <a
+                  href={link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`inline-flex items-center gap-1.5 break-all text-sm text-[#24408E] underline ${focusRing}`}
+                >
+                  {link}
+                  <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span className="sr-only">(opens in a new tab)</span>
+                </a>
+              </section>
+            )}
+
+            {selected.status !== "pending" && selected.admin_feedback && (
+              <section>
+                <h3 className="mb-2 text-sm font-semibold">Feedback sent</h3>
+                <p className="max-w-prose text-sm">{selected.admin_feedback}</p>
+              </section>
+            )}
           </div>
 
-          <div className="p-7 space-y-7 flex-1">
-            {/* Event Logistics Grid */}
-            <div>
-              <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
-                Event Logistics
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                  <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
-                    <Calendar className="size-3.5 text-[#FDB813]" /> Date
-                  </p>
-                  <p className="text-sm font-semibold">{selectedEvent.event_date || "No date set"}</p>
-                </div>
-                <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                  <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
-                    <Clock className="size-3.5 text-[#FDB813]" /> Schedule
-                  </p>
-                  <p className="text-sm font-semibold">
-                    {selectedEvent.start_time || "--"} – {selectedEvent.end_time || "--"}
-                  </p>
-                </div>
-                <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                  <p className="text-xs text-[#8D99AE] mb-1 flex items-center gap-1.5">
-                    <Building2 className="size-3.5 text-[#FDB813]" /> Venue
-                  </p>
-                  <p className="text-sm font-semibold truncate">{selectedEvent.venue || "No venue"}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Pre-Check Compliance Inspection */}
-            <div className="bg-[#16203D] border border-blue-500/30 rounded-none p-5 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex size-2 rounded-none bg-emerald-400 animate-pulse" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                    Pre-Check Compliance Inspection
-                  </h3>
-                </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Validated
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    Signature Detected
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Mandatory Requirements</span>
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    Requirements Met
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                  <span className="text-[10px] text-[#8D99AE]">Mandatory Waivers</span>
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                    Waivers Attached
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-none bg-[#090F24] border border-white/5 text-xs space-y-1">
-                <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                  Pre-Check Gap Analysis:
-                </div>
-                <p className="text-white/80 leading-relaxed text-[11px]">
-                  All required clearance attachments, consent forms, and physical adviser endorsements were verified. Requisition rows balance with requested funds. Proposal is clear for departmental endorsement.
-                </p>
-              </div>
-            </div>
-
-            {/* Description */}
-            <div>
-              <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-2">
-                Proposal Description
-              </h3>
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5 text-sm leading-relaxed text-white/90">
-                {selectedEvent.description || "No description provided."}
-              </div>
-            </div>
-
-            {/* Promotional Assets & Links */}
-            <div>
-              <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
-                Promotional Assets
-              </h3>
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-[#8D99AE] mb-0.5">Registration Link</p>
-                  <p className="text-sm font-medium text-white truncate max-w-md">
-                    {selectedEvent.external_registration_link ||
-                      selectedEvent.registration_link ||
-                      "No external link provided"}
-                  </p>
-                </div>
-                {(selectedEvent.external_registration_link || selectedEvent.registration_link) && (
-                  <a
-                    href={selectedEvent.external_registration_link || selectedEvent.registration_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-none text-white text-xs flex items-center gap-1.5 transition-colors"
-                  >
-                    Open <ExternalLink className="size-3.5" />
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Fixed Decision Footer Actions (Identical to Admin) */}
-          <div className="p-5 border-t border-white/10 bg-[#0E1733] flex items-center justify-end gap-3">
-            <button
-              onClick={() => handleUpdateStatus("rejected")}
-              disabled={actionLoading}
-              className="px-5 py-2.5 rounded-none border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-            >
-              Reject
-            </button>
-            <button
-              onClick={() => setShowRevisionModal(true)}
-              disabled={actionLoading}
-              className="px-5 py-2.5 rounded-none border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-            >
-              Needs Revision
-            </button>
-            <button
-              onClick={() => handleUpdateStatus("approved")}
-              disabled={actionLoading}
-              className="px-6 py-2.5 rounded-none bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-sm"
-            >
-              <CheckCircle2 className="size-4" />
-              Endorse Proposal
-            </button>
-          </div>
-        </div>
+          {selected.status === "pending" && (
+            <footer className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-[#DDE2EA] bg-white px-6 py-4">
+              {!dialog && errorLine}
+              <button type="button" disabled={saving} onClick={() => setDialog("reject")} className={btnDanger}>
+                Reject
+              </button>
+              <button type="button" disabled={saving} onClick={() => setDialog("revision")} className={btnOutline}>
+                Request revision
+              </button>
+              <button type="button" disabled={saving} onClick={() => decide("approved")} className={btnPrimary}>
+                Endorse proposal
+              </button>
+            </footer>
+          )}
+        </article>
+      ) : loading && events.length === 0 ? (
+        <DetailSkeleton />
       ) : (
-        <div className="flex-1 flex items-center justify-center text-[#8D99AE] text-sm">
-          Select an event from the left queue to view details.
+        <div className="flex flex-1 items-center justify-center text-sm text-[#5B6678]">
+          Select a proposal to review it.
         </div>
       )}
 
-      {/* Revision Modal */}
-      {showRevisionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-[#16203D] border border-white/15 rounded-none p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-2">Request Revisions</h3>
-            <p className="text-xs text-[#8D99AE] mb-4">
-              Enter the feedback or document corrections required:
-            </p>
+      {dialog && (
+        <Modal
+          title={dialog === "revision" ? "Request revision" : "Reject proposal"}
+          onClose={() => setDialog(null)}
+        >
+          <Field
+            id="decision-note"
+            label={dialog === "revision" ? "What needs to change?" : "Reason (optional)"}
+          >
             <textarea
+              id="decision-note"
               rows={4}
-              value={revisionFeedback}
-              onChange={(e) => setRevisionFeedback(e.target.value)}
-              className="w-full p-3 rounded-none bg-[#0B132B] border border-white/10 text-xs text-white outline-none focus:border-[#FDB813] resize-none mb-4"
+              autoFocus
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className={`${input} resize-none`}
             />
-            <div className="flex justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowRevisionModal(false)}
-                className="px-4 py-2 rounded-none text-xs text-[#8D99AE] hover:text-white border border-white/10 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpdateStatus("revision", revisionFeedback)}
-                disabled={!revisionFeedback.trim() || actionLoading}
-                className="px-5 py-2 rounded-none text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-40 cursor-pointer"
-              >
-                Send Revision Request
-              </button>
-            </div>
+          </Field>
+          <div className="mt-3">{errorLine}</div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" onClick={() => setDialog(null)} className={btnOutline}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={saving || (dialog === "revision" && !note.trim())}
+              onClick={() =>
+                decide(dialog === "revision" ? "needs_revision" : "rejected", note.trim() || undefined)
+              }
+              className={dialog === "revision" ? btnPrimary : `${btn} bg-[#B3261E] text-white hover:bg-[#8F1E18]`}
+            >
+              {dialog === "revision" ? "Send request" : "Reject proposal"}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
 }
 
 // ============================================================================
-// VIEW 2: EVENT SURVEYS (UC 04 — Matching Admin Navy/Gold Theme)
+// VIEW 2: EVENT SURVEYS
 // ============================================================================
+
+const DEFAULT_QUESTION: SurveyQuestion = {
+  id: "init-1",
+  prompt: "How well did this event meet its stated objectives?",
+  type: "rating",
+};
 
 function EventSurveysView({
   surveys,
@@ -1112,515 +1135,374 @@ function EventSurveysView({
   setSurveys: React.Dispatch<React.SetStateAction<EventSurvey[]>>;
   events: EventRecord[];
 }) {
-  const [selectedSurveyId, setSelectedSurveyId] = useState<string>(surveys[0]?.id || "");
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedId, setSelectedId] = useState(surveys[0]?.id ?? "");
+  const [creating, setCreating] = useState(false);
+  const [eventId, setEventId] = useState<number | null>(null);
+  const [qText, setQText] = useState("");
+  const [qType, setQType] = useState<QuestionType>("rating");
+  const [draft, setDraft] = useState<SurveyQuestion[]>([DEFAULT_QUESTION]);
 
-  const [newEventId, setNewEventId] = useState<number>(events[0]?.event_id || 101);
-  const [newQuestionText, setNewQuestionText] = useState("");
-  const [newQuestionType, setNewQuestionType] = useState<"rating" | "text" | "yes_no">("rating");
-  const [draftQuestions, setDraftQuestions] = useState<SurveyQuestion[]>([
-    {
-      id: "init-1",
-      prompt: "How effectively did this event achieve its stated academic objectives?",
-      type: "rating",
-    },
-  ]);
+  const active = surveys.find((s) => s.id === selectedId) ?? surveys[0];
+  const chosenEvent = events.find((e) => e.event_id === eventId) ?? events[0];
+  const rate = (s: EventSurvey) =>
+    s.targetAudience > 0 ? `${Math.round((s.responsesCount / s.targetAudience) * 100)}%` : "–";
 
-  const activeSurvey = surveys.find((s) => s.id === selectedSurveyId) || surveys[0];
-
-  const handleAddDraftQuestion = () => {
-    if (!newQuestionText.trim()) return;
-    setDraftQuestions((prev) => [
-      ...prev,
-      { id: `q-${Date.now()}`, prompt: newQuestionText.trim(), type: newQuestionType },
-    ]);
-    setNewQuestionText("");
+  const addQuestion = () => {
+    if (!qText.trim()) return;
+    setDraft((prev) => [...prev, { id: `q-${Date.now()}`, prompt: qText.trim(), type: qType }]);
+    setQText("");
   };
 
-  const handleCreateSurvey = (e: React.FormEvent) => {
+  const createSurvey = (e: React.FormEvent) => {
     e.preventDefault();
-    if (draftQuestions.length === 0) return;
-
-    const targetEvent = events.find((ev) => ev.event_id === Number(newEventId)) || events[0];
+    if (!chosenEvent || draft.length === 0) return;
     const created: EventSurvey = {
-      id: `SRV-0${surveys.length + 1}`,
-      eventId: targetEvent.event_id,
-      eventTitle: targetEvent.title,
-      organization: targetEvent.organization || "Student Organization",
+      id: `SRV-${Date.now().toString(36)}`,
+      eventId: chosenEvent.event_id,
+      eventTitle: chosenEvent.title,
+      organization: chosenEvent.organization || "Student organization",
       status: "active",
       responsesCount: 0,
-      targetAudience: targetEvent.accepted_attendees || targetEvent.proposed_attendees || 120,
+      targetAudience: chosenEvent.accepted_attendees ?? chosenEvent.proposed_attendees ?? 0,
       avgSatisfaction: 0,
-      aiSentimentSummary:
-        "Survey deployed. Sentiment summary will populate automatically once student responses arrive.",
-      questions: draftQuestions,
+      questions: draft,
     };
-
     setSurveys((prev) => [created, ...prev]);
-    setSelectedSurveyId(created.id);
-    setShowCreateModal(false);
-    setDraftQuestions([
-      {
-        id: "init-1",
-        prompt: "How effectively did this event achieve its stated academic objectives?",
-        type: "rating",
-      },
-    ]);
+    setSelectedId(created.id);
+    setCreating(false);
+    setDraft([DEFAULT_QUESTION]);
   };
 
-  const handleToggleSurveyStatus = (surveyId: string) => {
+  const toggleStatus = (id: string) =>
     setSurveys((prev) =>
-      prev.map((s) => {
-        if (s.id !== surveyId) return s;
-        return { ...s, status: s.status === "active" ? "closed" : "active" };
-      })
+      prev.map((s) => (s.id === id ? { ...s, status: s.status === "active" ? "closed" : "active" } : s))
     );
-  };
 
   return (
-    <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
-      {/* Left Survey List */}
-      <div className="w-[380px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
-          <div>
-            <h1 className="text-base font-bold tracking-tight text-white">Event Surveys</h1>
-            <p className="text-xs text-[#8D99AE] mt-0.5">{surveys.length} configured surveys</p>
-          </div>
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <section
+        aria-label="Surveys"
+        className="flex shrink-0 flex-col border-b border-[#DDE2EA] bg-white max-md:max-h-60 md:w-80 md:border-b-0 md:border-r"
+      >
+        <div className="flex items-center justify-between border-b border-[#DDE2EA] p-4">
+          <h1 className="font-serif text-lg font-semibold">Surveys</h1>
           <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-3 py-1.5 rounded-none bg-[#FDB813] hover:bg-[#e0a20f] text-black text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+            type="button"
+            disabled={events.length === 0}
+            onClick={() => setCreating(true)}
+            className={btnPrimary}
           >
-            <Plus className="size-3.5" /> New Survey
+            <Plus className="size-4" aria-hidden="true" /> New survey
           </button>
         </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {surveys.map((survey) => {
-            const isSelected = activeSurvey?.id === survey.id;
-            const completionRate =
-              survey.targetAudience > 0
-                ? Math.round((survey.responsesCount / survey.targetAudience) * 100)
-                : 0;
-
+        <ul className="flex-1 overflow-y-auto">
+          {surveys.length === 0 && (
+            <li className="p-6 text-center text-sm text-[#5B6678]">No surveys yet.</li>
+          )}
+          {surveys.map((s) => {
+            const isSel = active?.id === s.id;
             return (
-              <div
-                key={survey.id}
-                onClick={() => setSelectedSurveyId(survey.id)}
-                className={`p-4 rounded-none border transition-all cursor-pointer ${
-                  isSelected
-                    ? "bg-[#1C2541] border-[#FDB813] shadow-md"
-                    : "bg-[#16203D] border-white/5 hover:border-white/20"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <h3 className="font-semibold text-sm truncate text-white">{survey.eventTitle}</h3>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-none uppercase ${
-                      survey.status === "active"
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        : survey.status === "draft"
-                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                        : "bg-white/10 text-white/70 border border-white/15"
-                    }`}
-                  >
-                    {survey.status}
-                  </span>
-                </div>
-                <p className="text-xs text-[#8D99AE] mb-2">{survey.organization}</p>
-                <div className="flex items-center justify-between text-[11px] text-white/75">
-                  <span>
-                    Responses: {survey.responsesCount}/{survey.targetAudience} ({completionRate}%)
-                  </span>
-                  {survey.avgSatisfaction > 0 && (
-                    <span className="text-[#FDB813] font-bold">
-                      {survey.avgSatisfaction.toFixed(1)} / 5.0
-                    </span>
-                  )}
-                </div>
-              </div>
+              <li key={s.id}>
+                <button
+                  type="button"
+                  aria-current={isSel}
+                  onClick={() => setSelectedId(s.id)}
+                  className={`w-full border-b border-[#DDE2EA] px-4 py-3 text-left cursor-pointer ${focusRing} ${
+                    isSel ? "bg-[#EAEFFA] shadow-[inset_3px_0_0_#24408E]" : "hover:bg-[#F7F8FA]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium leading-snug">{s.eventTitle}</span>
+                    <span className="shrink-0 text-xs font-medium capitalize text-[#5B6678]">{s.status}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-[#5B6678]">
+                    {s.responsesCount} of {s.targetAudience} responded ({rate(s)})
+                  </p>
+                </button>
+              </li>
             );
           })}
-        </div>
-      </div>
+        </ul>
+      </section>
 
-      {/* Right Survey Detail Pane */}
-      {activeSurvey && (
-        <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0B132B]">
-          <div className="p-7 border-b border-white/10 bg-[#0E1733] flex items-start justify-between gap-4">
+      {active ? (
+        <article className="min-w-0 flex-1 space-y-8 overflow-y-auto p-6 md:p-8">
+          <header className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight text-white">
-                {activeSurvey.eventTitle}
-              </h2>
-              <p className="text-sm text-[#8D99AE] mt-0.5">{activeSurvey.organization}</p>
+              <h2 className="font-serif text-2xl font-semibold">{active.eventTitle}</h2>
+              <p className="mt-1 text-sm text-[#5B6678]">{active.organization}</p>
             </div>
-            <button
-              onClick={() => handleToggleSurveyStatus(activeSurvey.id)}
-              className="px-4 py-2 rounded-none bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition cursor-pointer"
-            >
-              {activeSurvey.status === "active" ? "Close Survey" : "Activate Survey"}
+            <button type="button" onClick={() => toggleStatus(active.id)} className={btnOutline}>
+              {active.status === "active" ? "Close survey" : "Activate survey"}
             </button>
-          </div>
+          </header>
 
-          <div className="p-7 space-y-7">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                <p className="text-xs text-[#8D99AE] mb-1">Responses Collected</p>
-                <p className="text-lg font-bold text-white">
-                  {activeSurvey.responsesCount} / {activeSurvey.targetAudience}
-                </p>
+          <dl className="grid grid-cols-3 gap-4 border-y border-[#DDE2EA] py-4">
+            {[
+              ["Responses", `${active.responsesCount} / ${active.targetAudience}`],
+              ["Participation", rate(active)],
+              ["Mean rating", active.avgSatisfaction > 0 ? `${active.avgSatisfaction.toFixed(1)} / 5` : "–"],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt className="text-xs text-[#5B6678]">{k}</dt>
+                <dd className="mt-0.5 text-xl font-semibold">{v}</dd>
               </div>
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                <p className="text-xs text-[#8D99AE] mb-1">Participation Rate</p>
-                <p className="text-lg font-bold text-[#FDB813]">
-                  {activeSurvey.targetAudience > 0
-                    ? Math.round((activeSurvey.responsesCount / activeSurvey.targetAudience) * 100)
-                    : 0}
-                  %
-                </p>
-              </div>
-              <div className="p-4 bg-[#16203D] rounded-none border border-white/5">
-                <p className="text-xs text-[#8D99AE] mb-1">Mean Quality Rating</p>
-                <p className="text-lg font-bold text-emerald-400">
-                  {activeSurvey.avgSatisfaction > 0
-                    ? `${activeSurvey.avgSatisfaction.toFixed(1)} / 5.0`
-                    : "Pending"}
-                </p>
-              </div>
-            </div>
+            ))}
+          </dl>
 
-            <div className="p-5 bg-[#16203D] border border-blue-500/30 rounded-none space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
-                Qualitative Response Summary
-              </h3>
-              <p className="text-xs text-white/80 leading-relaxed">
-                {activeSurvey.aiSentimentSummary}
-              </p>
-            </div>
+          {active.responsesCount > 0 && active.summary && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold">Response summary</h3>
+              <p className="max-w-prose text-sm leading-relaxed">{active.summary}</p>
+            </section>
+          )}
 
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[#8D99AE]">
-                Survey Questions ({activeSurvey.questions.length})
-              </h3>
-              {activeSurvey.questions.map((q, idx) => (
-                <div
-                  key={q.id}
-                  className="p-4 bg-[#16203D] rounded-none border border-white/5 flex items-center justify-between gap-4"
-                >
-                  <div>
-                    <span className="text-[10px] font-mono text-[#FDB813]">Q0{idx + 1}</span>
-                    <p className="text-sm font-medium text-white mt-0.5">{q.prompt}</p>
-                  </div>
-                  <span className="px-2.5 py-1 bg-[#0B132B] border border-white/10 text-[10px] font-mono uppercase text-[#8D99AE]">
-                    {q.type.replace("_", " ")}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold">Questions</h3>
+            <ol className="divide-y divide-[#DDE2EA] rounded-md border border-[#DDE2EA] bg-white">
+              {active.questions.map((q, i) => (
+                <li key={q.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
+                  <span>
+                    <span className="mr-2 text-[#5B6678]">{i + 1}.</span>
+                    {q.prompt}
                   </span>
-                </div>
+                  <span className="shrink-0 text-xs text-[#5B6678]">
+                    {{ rating: "1–5 rating", yes_no: "Yes / No", text: "Open text" }[q.type]}
+                  </span>
+                </li>
               ))}
-            </div>
-          </div>
+            </ol>
+          </section>
+        </article>
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-sm text-[#5B6678]">
+          Create a survey to get started.
         </div>
       )}
 
-      {/* Create Survey Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <form
-            onSubmit={handleCreateSurvey}
-            className="w-full max-w-lg bg-[#16203D] border border-white/15 rounded-none p-6 shadow-2xl space-y-4"
-          >
-            <h3 className="text-base font-bold text-white">Create Event Survey</h3>
-
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#8D99AE] mb-1.5">
-                Select Event
-              </label>
+      {creating && (
+        <Modal title="New survey" onClose={() => setCreating(false)}>
+          <form onSubmit={createSurvey} className="space-y-4">
+            <Field id="survey-event" label="Event">
               <select
-                value={newEventId}
-                onChange={(e) => setNewEventId(Number(e.target.value))}
-                className="w-full p-2.5 bg-[#0B132B] border border-white/10 text-xs text-white outline-none focus:border-[#FDB813]"
+                id="survey-event"
+                value={chosenEvent?.event_id ?? ""}
+                onChange={(e) => setEventId(Number(e.target.value))}
+                className={input}
               >
                 {events.map((ev) => (
                   <option key={ev.event_id} value={ev.event_id}>
-                    {ev.title} ({ev.event_date})
+                    {ev.title} ({formatDate(ev.event_date)})
                   </option>
                 ))}
               </select>
-            </div>
+            </Field>
 
-            <div className="space-y-2">
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#8D99AE]">
-                Add Question
+            <div>
+              <label htmlFor="survey-question" className="mb-1.5 block text-sm font-medium">
+                Add a question
               </label>
               <div className="flex gap-2">
                 <input
-                  type="text"
-                  value={newQuestionText}
-                  onChange={(e) => setNewQuestionText(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-[#0B132B] border border-white/10 text-xs text-white outline-none focus:border-[#FDB813]"
+                  id="survey-question"
+                  value={qText}
+                  onChange={(e) => setQText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addQuestion();
+                    }
+                  }}
+                  className={`${input} flex-1`}
                 />
                 <select
-                  value={newQuestionType}
-                  onChange={(e) =>
-                    setNewQuestionType(e.target.value as "rating" | "text" | "yes_no")
-                  }
-                  className="px-2.5 py-2 bg-[#0B132B] border border-white/10 text-xs text-white outline-none"
+                  aria-label="Question type"
+                  value={qType}
+                  onChange={(e) => setQType(e.target.value as QuestionType)}
+                  className={`${input} w-auto`}
                 >
-                  <option value="rating">1–5 Rating</option>
+                  <option value="rating">1–5 rating</option>
                   <option value="yes_no">Yes / No</option>
-                  <option value="text">Open Text</option>
+                  <option value="text">Open text</option>
                 </select>
-                <button
-                  type="button"
-                  onClick={handleAddDraftQuestion}
-                  className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer"
-                >
+                <button type="button" onClick={addQuestion} className={btnOutline}>
                   Add
                 </button>
               </div>
             </div>
 
-            <div className="max-h-40 overflow-y-auto space-y-1.5 bg-[#0B132B] p-3 border border-white/10">
-              {draftQuestions.map((q, idx) => (
-                <div
-                  key={q.id}
-                  className="flex items-center justify-between gap-2 text-xs py-1 border-b border-white/5 last:border-b-0"
-                >
-                  <span className="text-white/90 truncate">
-                    {idx + 1}. {q.prompt}
+            <ol className="max-h-40 divide-y divide-[#DDE2EA] overflow-y-auto rounded-md border border-[#DDE2EA]">
+              {draft.map((q, i) => (
+                <li key={q.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <span className="truncate">
+                    {i + 1}. {q.prompt}
                   </span>
                   <button
                     type="button"
-                    onClick={() =>
-                      setDraftQuestions((prev) => prev.filter((item) => item.id !== q.id))
-                    }
-                    className="text-red-400 hover:text-red-300 cursor-pointer shrink-0"
+                    aria-label={`Remove question ${i + 1}`}
+                    onClick={() => setDraft((prev) => prev.filter((x) => x.id !== q.id))}
+                    className={`rounded p-1 text-[#B3261E] hover:bg-[#FBEDEC] cursor-pointer ${focusRing}`}
                   >
-                    <Trash2 className="size-3.5" />
+                    <Trash2 className="size-4" />
                   </button>
-                </div>
+                </li>
               ))}
-            </div>
+            </ol>
 
-            <div className="flex justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 text-xs text-[#8D99AE] hover:text-white border border-white/10 cursor-pointer"
-              >
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setCreating(false)} className={btnOutline}>
                 Cancel
               </button>
-              <button
-                type="submit"
-                className="px-5 py-2 bg-[#FDB813] hover:bg-[#e0a20f] text-black text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Send className="size-3.5" /> Publish Survey
+              <button type="submit" disabled={draft.length === 0} className={btnPrimary}>
+                Publish survey
               </button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
     </div>
   );
 }
 
 // ============================================================================
-// VIEW 3: EVENT REPORTS (UC 06 — Matching Admin Navy/Gold Theme)
+// VIEW 3: EVENT REPORTS (only real numbers; missing data shows as "–")
 // ============================================================================
 
 function EventReportsView({
   events,
   surveys,
+  loading,
 }: {
   events: EventRecord[];
   surveys: EventSurvey[];
+  loading: boolean;
 }) {
-  const reportRows = events.map((ev) => {
-    const proposed = ev.proposed_attendees || 150;
-    const accepted = ev.accepted_attendees || Math.round(proposed * 0.88);
-    const acceptanceRate = Math.round((accepted / proposed) * 100);
-    const matchingSurvey = surveys.find((s) => s.eventId === ev.event_id);
+  if (loading && events.length === 0) return <ReportsSkeleton />;
 
+  const rows = events.map((ev) => {
+    const target = ev.proposed_attendees ?? null;
+    const accepted = ev.accepted_attendees ?? null;
     return {
       ...ev,
-      proposed,
+      target,
       accepted,
-      acceptanceRate,
-      surveyScore: matchingSurvey?.avgSatisfaction || 4.6,
+      rate: target && accepted !== null ? Math.round((accepted / target) * 100) : null,
     };
   });
 
-  const totalProposed = reportRows.reduce((sum, r) => sum + r.proposed, 0);
-  const totalAccepted = reportRows.reduce((sum, r) => sum + r.accepted, 0);
-  const overallAcceptanceRate =
-    totalProposed > 0 ? Math.round((totalAccepted / totalProposed) * 100) : 0;
+  const complete = rows.filter((r) => r.target && r.accepted !== null);
+  const totalTarget = complete.reduce((s, r) => s + (r.target ?? 0), 0);
+  const totalAccepted = complete.reduce((s, r) => s + (r.accepted ?? 0), 0);
+  const overallRate = totalTarget > 0 ? `${Math.round((totalAccepted / totalTarget) * 100)}%` : "–";
 
-  const chartData = reportRows.map((row) => ({
-    name: row.title.split(" ").slice(0, 2).join(" "),
-    TargetCapacity: row.proposed,
-    StudentAccepted: row.accepted,
+  const rated = surveys.filter((s) => s.responsesCount > 0 && s.avgSatisfaction > 0);
+  const avgScore = rated.length
+    ? `${(rated.reduce((s, x) => s + x.avgSatisfaction, 0) / rated.length).toFixed(1)} / 5`
+    : "–";
+
+  const chartData = complete.map((r) => ({
+    name: r.title.split(" ").slice(0, 2).join(" "),
+    Target: r.target,
+    Accepted: r.accepted,
   }));
 
-  const handleExportCSV = () => {
-    const headers = [
-      "Event ID",
-      "Event Title",
-      "Organization",
-      "Date",
-      "Status",
-      "Target Capacity",
-      "Student Accepted Attendance",
-      "Acceptance Rate (%)",
-    ];
-    const csvLines = [
-      headers.join(","),
-      ...reportRows.map((r) =>
-        [
-          r.event_id,
-          `"${r.title.replace(/"/g, '""')}"`,
-          `"${(r.organization || "").replace(/"/g, '""')}"`,
-          r.event_date,
-          r.status,
-          r.proposed,
-          r.accepted,
-          r.acceptanceRate,
-        ].join(",")
+  const exportCsv = () => {
+    const esc = (v: string | number | null) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      ["Event ID", "Title", "Organization", "Date", "Status", "Target capacity", "Accepted", "Acceptance rate (%)"]
+        .map(esc)
+        .join(","),
+      ...rows.map((r) =>
+        [r.event_id, r.title, r.organization ?? "", r.event_date, r.status, r.target, r.accepted, r.rate]
+          .map(esc)
+          .join(",")
       ),
     ];
-
-    const blob = new Blob([csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `Department_Event_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `CampusSync_Event_Report_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-7 space-y-6 bg-[#0B132B] text-white">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Event Reports</h1>
-          <p className="text-xs text-[#8D99AE] mt-0.5">
-            Clearance outcomes and student event acceptance metrics
-          </p>
-        </div>
-
-        <button
-          onClick={handleExportCSV}
-          className="px-4 py-2 bg-[#FDB813] hover:bg-[#e0a20f] text-black text-xs font-bold flex items-center gap-2 transition cursor-pointer"
-        >
-          <Download className="size-4" /> Export CSV
+    <div className="flex-1 space-y-8 overflow-y-auto p-6 md:p-8">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className="font-serif text-2xl font-semibold">Event reports</h1>
+        <button type="button" onClick={exportCsv} className={btnOutline}>
+          <Download className="size-4" aria-hidden="true" /> Export CSV
         </button>
-      </div>
+      </header>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 bg-[#16203D] border border-white/5">
-          <div className="flex items-center justify-between text-[#8D99AE] mb-1.5">
-            <span className="text-[11px] font-semibold uppercase">Total Events</span>
-            <FileText className="size-4 text-[#FDB813]" />
+      <dl className="grid grid-cols-2 gap-4 border-y border-[#DDE2EA] py-4 lg:grid-cols-4">
+        {[
+          ["Events", String(rows.length)],
+          ["Accepted", totalAccepted.toLocaleString()],
+          ["Acceptance rate", overallRate],
+          ["Mean survey rating", avgScore],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <dt className="text-xs text-[#5B6678]">{k}</dt>
+            <dd className="mt-0.5 text-2xl font-semibold text-[#24408E]">{v}</dd>
           </div>
-          <p className="text-2xl font-bold text-white">{reportRows.length}</p>
-        </div>
+        ))}
+      </dl>
 
-        <div className="p-4 bg-[#16203D] border border-white/5">
-          <div className="flex items-center justify-between text-[#8D99AE] mb-1.5">
-            <span className="text-[11px] font-semibold uppercase">Student Accepted</span>
-            <Users className="size-4 text-[#FDB813]" />
+      {chartData.length > 0 && (
+        <section aria-label="Accepted attendees compared with target capacity">
+          <h2 className="mb-3 text-sm font-semibold">Accepted vs. target capacity</h2>
+          <div className="h-64 w-full rounded-md border border-[#DDE2EA] bg-white p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#DDE2EA" vertical={false} />
+                <XAxis dataKey="name" stroke="#5B6678" tick={{ fontSize: 12 }} />
+                <YAxis stroke="#5B6678" tick={{ fontSize: 12 }} />
+                <Tooltip contentStyle={{ border: "1px solid #DDE2EA", fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Target" fill="#8A97AD" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Accepted" fill="#24408E" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-          <p className="text-2xl font-bold text-white">{totalAccepted.toLocaleString()}</p>
-        </div>
+        </section>
+      )}
 
-        <div className="p-4 bg-[#16203D] border border-white/5">
-          <div className="flex items-center justify-between text-[#8D99AE] mb-1.5">
-            <span className="text-[11px] font-semibold uppercase">Acceptance Rate</span>
-            <TrendingUp className="size-4 text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold text-emerald-400">{overallAcceptanceRate}%</p>
-        </div>
-
-        <div className="p-4 bg-[#16203D] border border-white/5">
-          <div className="flex items-center justify-between text-[#8D99AE] mb-1.5">
-            <span className="text-[11px] font-semibold uppercase">Avg Survey Score</span>
-            <CheckCircle2 className="size-4 text-[#FDB813]" />
-          </div>
-          <p className="text-2xl font-bold text-[#FDB813]">4.7 / 5.0</p>
-        </div>
-      </div>
-
-      {/* Chart */}
-      <div className="p-5 bg-[#16203D] border border-white/5">
-        <h2 className="text-sm font-bold text-white mb-4">
-          Student Event Acceptance vs. Proposed Capacity
-        </h2>
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-              <XAxis dataKey="name" stroke="#8D99AE" style={{ fontSize: "11px" }} />
-              <YAxis stroke="#8D99AE" style={{ fontSize: "11px" }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#0E1733",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  color: "#FFFFFF",
-                  fontSize: "12px",
-                }}
-              />
-              <Bar dataKey="TargetCapacity" name="Target Capacity" fill="#4A90D9" />
-              <Bar dataKey="StudentAccepted" name="Student Accepted" fill="#FDB813" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-[#16203D] border border-white/5 overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
+      <section className="overflow-x-auto rounded-md border border-[#DDE2EA] bg-white">
+        <table className="w-full border-collapse text-left text-sm">
           <thead>
-            <tr className="border-b border-white/10 bg-[#0E1733] text-[#8D99AE] uppercase text-[10px] tracking-wider">
-              <th className="py-3 px-4">Event Proposal</th>
-              <th className="py-3 px-4">Organization</th>
-              <th className="py-3 px-4">Date</th>
-              <th className="py-3 px-4">Status</th>
-              <th className="py-3 px-4 text-right">Accepted / Target</th>
-              <th className="py-3 px-4 text-right">Acceptance Rate</th>
+            <tr className="border-b border-[#DDE2EA] text-xs text-[#5B6678]">
+              <th scope="col" className="px-4 py-3 font-medium">Event</th>
+              <th scope="col" className="px-4 py-3 font-medium">Date</th>
+              <th scope="col" className="px-4 py-3 font-medium">Status</th>
+              <th scope="col" className="px-4 py-3 text-right font-medium">Accepted / target</th>
+              <th scope="col" className="px-4 py-3 text-right font-medium">Rate</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
-            {reportRows.map((row) => (
-              <tr key={row.event_id} className="hover:bg-white/[0.02]">
-                <td className="py-3.5 px-4 font-semibold text-white">{row.title}</td>
-                <td className="py-3.5 px-4 text-[#8D99AE]">{row.organization}</td>
-                <td className="py-3.5 px-4 text-white/80">{row.event_date}</td>
-                <td className="py-3.5 px-4">
-                  <span
-                    className={`px-2 py-0.5 text-[10px] font-bold uppercase ${
-                      row.status === "approved" || row.status === "completed"
-                        ? "bg-emerald-500/20 text-emerald-400"
-                        : row.status === "needs_revision" || row.status === "revision"
-                        ? "bg-amber-500/20 text-amber-400"
-                        : row.status === "rejected"
-                        ? "bg-red-500/20 text-red-400"
-                        : "bg-blue-500/20 text-blue-400"
-                    }`}
-                  >
-                    {row.status.replace("_", " ")}
-                  </span>
+          <tbody className="divide-y divide-[#DDE2EA]">
+            {rows.map((r) => (
+              <tr key={r.event_id}>
+                <td className="px-4 py-3">
+                  <span className="font-medium">{r.title}</span>
+                  <span className="block text-xs text-[#5B6678]">{r.organization}</span>
                 </td>
-                <td className="py-3.5 px-4 text-right font-mono text-white">
-                  {row.accepted} / {row.proposed}
+                <td className="px-4 py-3 text-[#5B6678]">{formatDate(r.event_date)}</td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={r.status} />
                 </td>
-                <td className="py-3.5 px-4 text-right font-bold text-[#FDB813]">
-                  {row.acceptanceRate}%
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {r.accepted ?? "–"} / {r.target ?? "–"}
+                </td>
+                <td className="px-4 py-3 text-right font-medium tabular-nums">
+                  {r.rate !== null ? `${r.rate}%` : "–"}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </section>
     </div>
   );
 }
