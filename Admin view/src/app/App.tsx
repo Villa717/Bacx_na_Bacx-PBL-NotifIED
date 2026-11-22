@@ -477,10 +477,18 @@ export function CoordinatorInterface({
   const getEventPreScreen = (ev: EventRecord): PreScreenResult | undefined =>
     ev.ai_prescreen_result || preScreenMap[String(ev.event_id)];
 
-  const pendingReviewEvents = events.filter(
-    (e) => e.status === "pending" || e.status === "needs_revision" || e.status === "revision"
-  );
-  const approvedEvents = events.filter((e) => e.status === "approved");
+  const [dbError, setDbError] = useState("");
+
+  const normalizedStatus = (status?: string) => (status || "pending").toLowerCase().trim();
+
+  const pendingReviewEvents = events.filter((e) => {
+    const s = normalizedStatus(e.status);
+    return s === "pending" || s === "needs_revision" || s === "revision";
+  });
+  const approvedEvents = events.filter((e) => {
+    const s = normalizedStatus(e.status);
+    return s === "approved" || s === "completed";
+  });
   const p1UrgentCount = pendingReviewEvents.filter((e) => {
     const aiTriage = getEventTriage(e);
     const tier = aiTriage?.priorityTier || e.urgency_tier || computeDynamicUrgency(e.event_date).tier;
@@ -511,53 +519,98 @@ export function CoordinatorInterface({
       if (diffPriority !== 0) return diffPriority;
       const compDiff = (b.aiTriage?.complexityScore || 0) - (a.aiTriage?.complexityScore || 0);
       if (compDiff !== 0) return compDiff;
-      return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
+      const timeA = a.event_date ? new Date(a.event_date).getTime() : Number.MAX_SAFE_INTEGER;
+      const timeB = b.event_date ? new Date(b.event_date).getTime() : Number.MAX_SAFE_INTEGER;
+      return (Number.isNaN(timeA) ? Number.MAX_SAFE_INTEGER : timeA) -
+        (Number.isNaN(timeB) ? Number.MAX_SAFE_INTEGER : timeB);
     });
 
   const fetchQueue = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("events")
-      .select("*")
-      .order("event_id", { ascending: false });
+    setDbError("");
+    try {
+      const { data, error } = await supabase
+        .from("events")
+        .select("*")
+        .order("event_id", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching queue from Supabase:", error.message);
-    } else if (data) {
-      setEvents(data as EventRecord[]);
-      if (data.length > 0 && !selectedEventId) {
-        setSelectedEventId(data[0].event_id);
+      if (error) {
+        console.error("Error fetching queue from Supabase:", error.message);
+        setDbError(`Supabase sync error: ${error.message}`);
+      } else if (data) {
+        setEvents(data as EventRecord[]);
+        if (data.length > 0 && !selectedEventId) {
+          setSelectedEventId(data[0].event_id);
+        }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not reach Supabase.";
+      console.error("Error fetching queue from Supabase:", msg);
+      setDbError(`Supabase connection failed: ${msg}`);
     }
     setLoading(false);
   };
 
   // Sync live registered facilitator accounts once Facilitator Portal creates users
   const fetchFacilitatorAccounts = async () => {
-    const { data, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("role_id", 1);
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("role_id", 1);
 
-    if (!error && data && data.length > 0) {
-      const mapped: FacilitatorAccount[] = data.map((u: any) => ({
-        id: `FAC-${String(u.user_id).padStart(3, "0")}`,
-        full_name: u.full_name,
-        email: u.email,
-        organization: u.organization || "Student Organization",
-        role: "Activity Facilitator",
-        status: "Active",
-        last_active: "Registered",
-      }));
-      setFacilitatorAccounts(mapped);
-    } else {
+      if (!error && data && data.length > 0) {
+        const mapped: FacilitatorAccount[] = data.map((u: any) => ({
+          id: `FAC-${String(u.user_id).padStart(3, "0")}`,
+          full_name: u.full_name,
+          email: u.email,
+          organization: u.organization || "Student Organization",
+          role: "Activity Facilitator",
+          status: "Active",
+          last_active: "Registered",
+        }));
+        setFacilitatorAccounts(mapped);
+      } else {
+        setFacilitatorAccounts([]);
+      }
+    } catch (err) {
+      console.error("Error fetching facilitator accounts:", err);
       setFacilitatorAccounts([]);
+    }
+  };
+
+  const fetchAnnouncements = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("announcements")
+        .select("*")
+        .order("announcement_id", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        const mapped: AnnouncementItem[] = data.map((a: any) => ({
+          id: a.announcement_id,
+          title: a.title,
+          content: a.content,
+          audience: a.target_audience || "All Facilitators",
+          created_at: a.published_at
+            ? new Date(a.published_at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "Recent",
+        }));
+        setAnnouncements([...mapped, ...DEFAULT_ANNOUNCEMENTS]);
+      }
+    } catch {
+      // Fall back to default announcements
     }
   };
 
   useEffect(() => {
     fetchQueue();
     fetchFacilitatorAccounts();
+    fetchAnnouncements();
 
     const channel = supabase
       .channel("events-queue-channel")
@@ -1100,6 +1153,7 @@ export function CoordinatorInterface({
             onClick={() => {
               fetchQueue();
               fetchFacilitatorAccounts();
+              fetchAnnouncements();
             }}
             className="px-3 py-1 rounded-none bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 flex items-center gap-1.5 cursor-pointer transition"
           >
@@ -1107,6 +1161,22 @@ export function CoordinatorInterface({
             Sync Queue
           </button>
         </header>
+
+        {dbError && (
+          <div className="px-6 py-2 bg-red-950/60 border-b border-red-500/40 text-xs text-red-300 flex items-center justify-between gap-2 shrink-0">
+            <span className="flex items-center gap-2">
+              <AlertCircle className="size-3.5 shrink-0 text-red-400" />
+              {dbError}
+            </span>
+            <button
+              type="button"
+              onClick={() => fetchQueue()}
+              className="underline text-red-200 hover:text-white cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* ── TAB 1: HOME ── */}
         {activeNav === "home" && (
