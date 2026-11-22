@@ -21,8 +21,18 @@ import {
   PanelLeftOpen,
   Megaphone,
   BellRing,
+  Loader2,
+  XCircle,
+  PenTool,
+  FileCheck2,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import {
+  aiLocalCache,
+  DEFAULT_STORAGE_BUCKET,
+  runDocumentPreScreen,
+  type PreScreenResult,
+} from "../../lib/aiClient";
 
 export interface FacilitatorUser {
   user_id?: number;
@@ -86,18 +96,20 @@ export function FacilitatorInterface({
   const [venue, setVenue] = useState("");
   const [description, setDescription] = useState("");
   const [regLink, setRegLink] = useState("");
+  const [expectedAttendees, setExpectedAttendees] = useState("");
+  const [estimatedBudget, setEstimatedBudget] = useState("");
+  const [hasExternalGuests, setHasExternalGuests] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // AI Pre-Check File Attachment States (UC-02)
+  // Multimodal AI Document & Visual Signature Pre-Screening States (Gemini 2.5 Flash)
   const [apfFile, setApfFile] = useState<File | null>(null);
   const [waiverFile, setWaiverFile] = useState<File | null>(null);
-  const [checkResult, setCheckResult] = useState<{
-    ran: boolean;
-    passed: boolean;
-    adviserSignature: boolean;
-    waiversValid: boolean;
-    notes: string;
-  } | null>(null);
+  const [preScreening, setPreScreening] = useState(false);
+  const [preScreenError, setPreScreenError] = useState("");
+  const [preScreenResult, setPreScreenResult] = useState<PreScreenResult | null>(null);
+  const [cachedPreScreens, setCachedPreScreens] = useState<Record<string, PreScreenResult>>(() =>
+    aiLocalCache.getPreScreens()
+  );
 
   useEffect(() => {
     if (currentUser?.organization) {
@@ -163,10 +175,80 @@ export function FacilitatorInterface({
     };
   }, []);
 
+  const isSupportedMultimodalFile = (file: File) =>
+    ["application/pdf", "image/png", "image/jpeg", "image/jpg"].includes(file.type) ||
+    /\.(pdf|png|jpe?g)$/i.test(file.name);
+
+  const handleRunAiPreScreen = async (): Promise<PreScreenResult | null> => {
+    if (!apfFile) {
+      setPreScreenError(
+        "Attach the Signed APF Form (PDF, PNG, or JPEG) before running the AI Document & Signature Check."
+      );
+      return null;
+    }
+
+    const filesToInspect: File[] = [];
+    if (isSupportedMultimodalFile(apfFile)) {
+      filesToInspect.push(apfFile);
+    } else {
+      setPreScreenError("APF file must be a PDF, PNG, or JPEG for multimodal AI inspection.");
+      return null;
+    }
+
+    if (waiverFile && isSupportedMultimodalFile(waiverFile)) {
+      filesToInspect.push(waiverFile);
+    }
+
+    setPreScreening(true);
+    setPreScreenError("");
+
+    try {
+      const result = await runDocumentPreScreen({
+        files: filesToInspect,
+        metadata: {
+          title: title.trim() || undefined,
+          organization: organization.trim() || undefined,
+          eventDate: date || undefined,
+          startTime: startTime || undefined,
+          endTime: endTime || undefined,
+          venue: venue.trim() || undefined,
+          description: description.trim() || undefined,
+          budget: estimatedBudget.trim() || undefined,
+          expectedAttendees: expectedAttendees ? Number(expectedAttendees) : undefined,
+          hasExternalGuests,
+        },
+      });
+      setPreScreenResult(result);
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "AI pre-screening request failed.";
+      setPreScreenError(msg);
+      return null;
+    } finally {
+      setPreScreening(false);
+    }
+  };
+
+  const tryUploadToStorage = async (file: File, prefix: string): Promise<string | null> => {
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `${prefix}/${Date.now()}_${safeName}`;
+      const { error } = await supabase.storage
+        .from(DEFAULT_STORAGE_BUCKET)
+        .upload(storagePath, file, { upsert: false, contentType: file.type || undefined });
+      if (error) {
+        console.warn("Optional Supabase Storage upload skipped:", error.message);
+        return null;
+      }
+      return storagePath;
+    } catch {
+      return null;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Ensure required attachment is present before automated pre-check & submission
     if (!apfFile) {
       alert("Missing Required Document: Please attach the Signed APF Form before submitting for review.");
       return;
@@ -174,33 +256,32 @@ export function FacilitatorInterface({
 
     setSubmitting(true);
 
-    // Automated Optical Pre-Check Verification
-    const hasWaivers = !!waiverFile;
-    const isOffCampus =
-      venue.toLowerCase().includes("off") ||
-      venue.toLowerCase().includes("external") ||
-      venue.toLowerCase().includes("mph1");
-    const passed = isOffCampus ? hasWaivers : true;
-
-    const result = {
-      ran: true,
-      passed: passed,
-      adviserSignature: true,
-      waiversValid: isOffCampus ? hasWaivers : true,
-      notes: passed
-        ? "Pre-Check Cleared: Physical adviser endorsement detected optically. Required clearance forms validated. Proposal is primed for dynamic queue routing."
-        : "Pre-Check Gap Alert: Missing signed off-campus / MPH1 participant liability waivers. Please attach required waiver documentation.",
-    };
-
-    setCheckResult(result);
-
-    if (!passed) {
-      setSubmitting(false);
-      alert("Gap Remediation Required: Your proposal contains unresolved compliance gaps. Please attach all required documentation.");
-      return;
+    // Run real multimodal AI pre-screen if not already executed for the current files
+    let aiResult = preScreenResult;
+    if (!aiResult) {
+      aiResult = await handleRunAiPreScreen();
     }
 
-    const payload = {
+    if (aiResult && (aiResult.overallStatus === "FLAGGED" || aiResult.overallStatus === "NEEDS_REVISION")) {
+      const missingCount = aiResult.signatureCheck.missingSignatureLines.length;
+      const issueSummary =
+        missingCount > 0
+          ? `AI Pre-Screen detected ${missingCount} missing signature line(s) and status "${aiResult.overallStatus}".`
+          : `AI Pre-Screen returned status "${aiResult.overallStatus}" (score ${aiResult.completenessScore}/100).`;
+      const proceed = window.confirm(
+        `${issueSummary}\n\nDo you still want to submit this proposal for review, or click Cancel to fix the flagged gaps first?`
+      );
+      if (!proceed) {
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    // Attempt optional Supabase Storage upload (gracefully ignored if bucket isn't provisioned)
+    const documentPath = await tryUploadToStorage(apfFile, "apf");
+    const waiverPath = waiverFile ? await tryUploadToStorage(waiverFile, "waivers") : null;
+
+    const basePayload = {
       title: title.trim(),
       venue: venue.trim(),
       description: description.trim(),
@@ -212,12 +293,51 @@ export function FacilitatorInterface({
       facilitator_id: currentUser?.user_id || null,
     };
 
-    const { error } = await supabase.from("events").insert([payload]);
+    const extendedPayload: Record<string, unknown> = {
+      ...basePayload,
+      organization: organization.trim() || null,
+      proposed_attendees: expectedAttendees ? Number(expectedAttendees) : null,
+      estimated_budget: estimatedBudget ? Number(estimatedBudget) : null,
+      has_external_guests: hasExternalGuests,
+      ...(aiResult ? { ai_prescreen_result: aiResult } : {}),
+      ...(documentPath ? { document_bucket: DEFAULT_STORAGE_BUCKET, document_path: documentPath } : {}),
+      ...(waiverPath ? { waiver_path: waiverPath } : {}),
+    };
 
-    if (error) {
-      alert(`Submission error: ${error.message}`);
+    // Try inserting with optional AI/storage columns first; fall back cleanly to base columns if schema lacks them
+    let insertedEventId: number | undefined;
+    let insertError: { message: string } | null = null;
+
+    const { data: extData, error: extError } = await supabase
+      .from("events")
+      .insert([extendedPayload])
+      .select("event_id")
+      .maybeSingle();
+
+    if (extError) {
+      console.warn(
+        "Extended insert fell back to base schema columns:",
+        extError.message
+      );
+      const { data: baseData, error: baseError } = await supabase
+        .from("events")
+        .insert([basePayload])
+        .select("event_id")
+        .maybeSingle();
+      insertedEventId = baseData?.event_id;
+      insertError = baseError;
     } else {
-      alert("Proposal pre-checked and submitted successfully to the Database!");
+      insertedEventId = extData?.event_id;
+    }
+
+    if (insertError) {
+      alert(`Submission error: ${insertError.message}`);
+    } else {
+      if (aiResult && insertedEventId) {
+        aiLocalCache.savePreScreen(insertedEventId, aiResult);
+        setCachedPreScreens(aiLocalCache.getPreScreens());
+      }
+      alert("Proposal submitted successfully to CampusSync!");
       setTitle("");
       setDate("");
       setStartTime("");
@@ -225,9 +345,13 @@ export function FacilitatorInterface({
       setVenue("");
       setDescription("");
       setRegLink("");
+      setExpectedAttendees("");
+      setEstimatedBudget("");
+      setHasExternalGuests(false);
       setApfFile(null);
       setWaiverFile(null);
-      setCheckResult(null);
+      setPreScreenResult(null);
+      setPreScreenError("");
       await fetchMyEvents();
       setActiveNav("submitted");
     }
@@ -590,6 +714,47 @@ export function FacilitatorInterface({
                   />
                 </div>
 
+                {/* Optional Logistics Metadata for AI Cross-Check & Queue Triage */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-xs font-semibold text-[#8D99AE] block mb-1">
+                      Expected Attendees
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={expectedAttendees}
+                      onChange={(e) => setExpectedAttendees(e.target.value)}
+                      placeholder="e.g., 150"
+                      className="w-full p-2 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-[#8D99AE] block mb-1">
+                      Estimated Budget (PHP)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={estimatedBudget}
+                      onChange={(e) => setEstimatedBudget(e.target.value)}
+                      placeholder="e.g., 15000"
+                      className="w-full p-2 bg-[#0B132B] border border-white/10 text-xs text-white focus:border-[#FDB813] outline-none"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <label className="w-full p-2 bg-[#0B132B] border border-white/10 text-xs text-slate-200 flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={hasExternalGuests}
+                        onChange={(e) => setHasExternalGuests(e.target.checked)}
+                        className="accent-[#FDB813] cursor-pointer"
+                      />
+                      <span>External Guests / Speakers</span>
+                    </label>
+                  </div>
+                </div>
+
                 <div>
                   <label className="text-xs font-semibold text-[#8D99AE] block mb-1">Description</label>
                   <textarea
@@ -611,14 +776,14 @@ export function FacilitatorInterface({
                   />
                 </div>
 
-                {/* Clearance Packet & AI Pre-Check Intake */}
+                {/* Clearance Packet & Multimodal AI Pre-Check Intake */}
                 <div className="p-4 bg-[#0B132B] border border-blue-500/30 space-y-3 mt-3">
                   <div className="flex items-center justify-between border-b border-white/10 pb-2">
                     <span className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                      <Sparkles className="size-3.5 text-[#FDB813]" /> AI Pre-Check Intake
+                      <Sparkles className="size-3.5 text-[#FDB813]" /> AI Multimodal Pre-Check Intake
                     </span>
                     <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                      Gemini AI
+                      Gemini 2.5 Flash
                     </span>
                   </div>
 
@@ -630,17 +795,18 @@ export function FacilitatorInterface({
                         <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
                         <span className="shrink-0">Signed APF Form *</span>
                         <span className="text-[10px] text-emerald-400 font-mono truncate ml-auto mr-2">
-                          {apfFile ? apfFile.name : "Choose PDF / Image"}
+                          {apfFile ? apfFile.name : "Choose PDF / PNG / JPEG"}
                         </span>
                         <input
                           key={apfFile ? apfFile.name : "apf-empty"}
                           type="file"
-                          accept=".pdf,image/*"
+                          accept=".pdf,image/png,image/jpeg"
                           className="hidden"
                           onChange={(e) => {
                             if (e.target.files?.[0]) {
                               setApfFile(e.target.files[0]);
-                              setCheckResult(null);
+                              setPreScreenResult(null);
+                              setPreScreenError("");
                             }
                           }}
                         />
@@ -650,7 +816,8 @@ export function FacilitatorInterface({
                           type="button"
                           onClick={() => {
                             setApfFile(null);
-                            setCheckResult(null);
+                            setPreScreenResult(null);
+                            setPreScreenError("");
                           }}
                           className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                           title="Remove attachment"
@@ -666,17 +833,18 @@ export function FacilitatorInterface({
                         <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
                         <span className="shrink-0">Participant Waivers (If Off-Campus / MPH1)</span>
                         <span className="text-[10px] text-emerald-400 font-mono truncate ml-auto mr-2">
-                          {waiverFile ? waiverFile.name : "Choose PDF / ZIP"}
+                          {waiverFile ? waiverFile.name : "Choose PDF / PNG / JPEG"}
                         </span>
                         <input
                           key={waiverFile ? waiverFile.name : "waiver-empty"}
                           type="file"
-                          accept=".pdf,.zip,image/*"
+                          accept=".pdf,image/png,image/jpeg"
                           className="hidden"
                           onChange={(e) => {
                             if (e.target.files?.[0]) {
                               setWaiverFile(e.target.files[0]);
-                              setCheckResult(null);
+                              setPreScreenResult(null);
+                              setPreScreenError("");
                             }
                           }}
                         />
@@ -686,7 +854,8 @@ export function FacilitatorInterface({
                           type="button"
                           onClick={() => {
                             setWaiverFile(null);
-                            setCheckResult(null);
+                            setPreScreenResult(null);
+                            setPreScreenError("");
                           }}
                           className="text-white/40 hover:text-red-400 transition p-1 hover:bg-white/5 cursor-pointer shrink-0"
                           title="Remove attachment"
@@ -697,39 +866,177 @@ export function FacilitatorInterface({
                     </div>
                   </div>
 
-                  {/* Pre-Check Feedback Results */}
-                  {checkResult && (
+                  {/* Pre-Submission Multimodal AI Check Button */}
+                  <button
+                    type="button"
+                    onClick={handleRunAiPreScreen}
+                    disabled={preScreening || !apfFile}
+                    className="w-full py-2.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-200 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                  >
+                    {preScreening ? (
+                      <>
+                        <Loader2 className="size-3.5 animate-spin text-[#FDB813]" />
+                        Inspecting PDF/Image & Visual Signatures...
+                      </>
+                    ) : (
+                      <>
+                        <FileCheck2 className="size-3.5 text-[#FDB813]" />
+                        Run AI Document & Signature Check
+                      </>
+                    )}
+                  </button>
+
+                  {preScreenError && (
+                    <div className="p-3 bg-red-950/30 border border-red-500/40 text-red-300 text-xs flex items-start gap-2">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-red-400" />
+                      <span>{preScreenError}</span>
+                    </div>
+                  )}
+
+                  {/* Structured Multimodal Pre-Screen Feedback */}
+                  {preScreenResult && (
                     <div
-                      className={`p-3 border text-xs space-y-2 ${
-                        checkResult.passed
-                          ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-300"
-                          : "bg-amber-950/30 border-amber-500/40 text-amber-300"
+                      className={`p-3.5 border text-xs space-y-3 ${
+                        preScreenResult.overallStatus === "PASSED"
+                          ? "bg-emerald-950/25 border-emerald-500/40"
+                          : preScreenResult.overallStatus === "NEEDS_REVISION"
+                          ? "bg-amber-950/25 border-amber-500/40"
+                          : "bg-red-950/25 border-red-500/40"
                       }`}
                     >
-                      <div className="flex items-center justify-between font-bold text-[11px]">
-                        <span className="flex items-center gap-1.5">
-                          {checkResult.passed ? (
-                            <CheckCircle2 className="size-3.5 text-emerald-400" />
+                      {/* Header Status & Completeness Score */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 font-bold text-xs text-white">
+                          {preScreenResult.overallStatus === "PASSED" ? (
+                            <CheckCircle2 className="size-4 text-emerald-400" />
+                          ) : preScreenResult.overallStatus === "NEEDS_REVISION" ? (
+                            <AlertTriangle className="size-4 text-amber-400" />
                           ) : (
-                            <AlertTriangle className="size-3.5 text-amber-400" />
+                            <XCircle className="size-4 text-red-400" />
                           )}
-                          {checkResult.passed ? "Pre-Check Cleared (0 Gaps)" : "Gap Remediation Alert"}
+                          AI Compliance Status: {preScreenResult.overallStatus.replace("_", " ")}
                         </span>
-                        <span className="text-[10px] uppercase font-mono">
-                          {checkResult.passed ? "Queue Eligible" : "Action Required"}
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 bg-black/40 border border-white/10 text-[#FDB813]">
+                          Score: {preScreenResult.completenessScore}/100
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-1.5 text-[10px] text-white/80">
-                        <div className="p-1 bg-black/30 text-center">
-                          Adviser: {checkResult.adviserSignature ? "✓ Valid" : "✗ Missing"}
-                        </div>
-                        <div className="p-1 bg-black/30 text-center">
-                          Waivers: {checkResult.waiversValid ? "✓ Present" : "✗ Missing"}
-                        </div>
+                      {/* Progress Bar */}
+                      <div className="w-full h-1.5 bg-black/40 overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${
+                            preScreenResult.completenessScore >= 80
+                              ? "bg-emerald-400"
+                              : preScreenResult.completenessScore >= 50
+                              ? "bg-amber-400"
+                              : "bg-red-400"
+                          }`}
+                          style={{ width: `${preScreenResult.completenessScore}%` }}
+                        />
                       </div>
 
-                      <p className="text-[10px] leading-relaxed text-white/70">{checkResult.notes}</p>
+                      {/* Visual Signature Verification Box */}
+                      <div className="p-2.5 bg-black/30 border border-white/10 space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] font-bold">
+                          <span className="flex items-center gap-1.5 text-white">
+                            <PenTool className="size-3.5 text-[#FDB813]" /> Visual Signature Check
+                          </span>
+                          <span
+                            className={
+                              preScreenResult.signatureCheck.signaturesDetected
+                                ? "text-emerald-400"
+                                : "text-red-400"
+                            }
+                          >
+                            {preScreenResult.signatureCheck.signaturesDetected
+                              ? "✓ Signatures Detected"
+                              : "✗ No Signatures Detected"}
+                          </span>
+                        </div>
+
+                        {preScreenResult.signatureCheck.detectedSignatories.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {preScreenResult.signatureCheck.detectedSignatories.map((sig, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px]"
+                              >
+                                ✓ {sig}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {preScreenResult.signatureCheck.missingSignatureLines.length > 0 && (
+                          <div className="p-2 bg-red-500/15 border border-red-500/40 text-red-200 space-y-1">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-red-300">
+                              Missing / Blank Signature Alerts
+                            </div>
+                            <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                              {preScreenResult.signatureCheck.missingSignatureLines.map((line, idx) => (
+                                <li key={idx}>{line}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {preScreenResult.signatureCheck.visualNotes && (
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            <span className="text-slate-400 font-semibold">Visual notes: </span>
+                            {preScreenResult.signatureCheck.visualNotes}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Institutional Checklist */}
+                      {preScreenResult.checklistEvaluation.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                            Institutional Requirement Checklist
+                          </div>
+                          <div className="divide-y divide-white/5 border border-white/10 bg-black/25">
+                            {preScreenResult.checklistEvaluation.map((row, idx) => (
+                              <div key={idx} className="p-2 flex items-start justify-between gap-2 text-[11px]">
+                                <div>
+                                  <div className="font-semibold text-white">{row.requirement}</div>
+                                  <div className="text-slate-400 text-[10px] mt-0.5">{row.evidence}</div>
+                                </div>
+                                <span
+                                  className={`shrink-0 px-1.5 py-0.5 text-[10px] font-bold border ${
+                                    row.met
+                                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                  }`}
+                                >
+                                  {row.met ? "✓ Met" : "✗ Missing"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Form vs. Document Inconsistencies */}
+                      {preScreenResult.inconsistencies.length > 0 && (
+                        <div className="p-2.5 bg-amber-500/15 border border-amber-500/40 text-amber-200 space-y-1">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                            <AlertTriangle className="size-3.5" /> Form vs. Document Mismatches
+                          </div>
+                          <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                            {preScreenResult.inconsistencies.map((inc, idx) => (
+                              <li key={idx}>{inc}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Reviewer Summary */}
+                      <div className="p-2.5 bg-black/30 border border-white/10 text-[11px] text-slate-200 leading-relaxed">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#FDB813] block mb-0.5">
+                          Reviewer Summary
+                        </span>
+                        {preScreenResult.reviewerSummary}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -737,11 +1044,11 @@ export function FacilitatorInterface({
                 {/* Direct Unified Check & Submit Button */}
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || preScreening}
                   className="w-full py-3 font-bold text-xs flex items-center justify-center gap-2 transition-all mt-2 bg-[#FDB813] hover:bg-[#e0a20f] text-black shadow-lg cursor-pointer disabled:opacity-50"
                 >
                   <Send className="size-3.5" />
-                  {submitting ? "Analyzing & Submitting..." : "Check & Submit Proposal"}
+                  {submitting ? "Submitting Proposal..." : "Check & Submit Proposal"}
                 </button>
               </form>
             </div>
@@ -763,71 +1070,99 @@ export function FacilitatorInterface({
                     No proposals submitted yet. Go to <b>Submit Proposal</b> to create one.
                   </div>
                 ) : (
-                  events.map((item) => (
-                    <div key={item.event_id} className="p-4 bg-[#16203D] border border-white/10 space-y-2 text-left">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-sm font-bold text-white">{item.title}</h3>
-                          <p className="text-xs text-[#8D99AE]">{item.organization || "Student Org"}</p>
+                  events.map((item) => {
+                    const aiPre: PreScreenResult | undefined =
+                      item.ai_prescreen_result || cachedPreScreens[String(item.event_id)];
+                    return (
+                      <div key={item.event_id} className="p-4 bg-[#16203D] border border-white/10 space-y-2 text-left">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-bold text-white">{item.title}</h3>
+                            <p className="text-xs text-[#8D99AE]">{item.organization || "Student Org"}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {aiPre && (
+                              <span
+                                className={`text-[10px] font-mono font-bold px-2 py-0.5 border ${
+                                  aiPre.overallStatus === "PASSED"
+                                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                    : aiPre.overallStatus === "NEEDS_REVISION"
+                                    ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                    : "bg-red-500/15 text-red-300 border-red-500/30"
+                                }`}
+                              >
+                                AI: {aiPre.overallStatus.replace("_", " ")} ({aiPre.completenessScore}%)
+                              </span>
+                            )}
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 capitalize border ${
+                                item.status === "pending"
+                                  ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                                  : item.status === "approved"
+                                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                                  : item.status === "needs_revision"
+                                  ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                                  : "bg-red-500/20 text-red-400 border-red-500/30"
+                              }`}
+                            >
+                              {item.status ? item.status.replace("_", " ") : "Pending"}
+                            </span>
+                          </div>
                         </div>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 capitalize border ${
-                            item.status === "pending"
-                              ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                              : item.status === "approved"
-                              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                              : item.status === "needs_revision"
-                              ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-                              : "bg-red-500/20 text-red-400 border-red-500/30"
-                          }`}
-                        >
-                          {item.status ? item.status.replace("_", " ") : "Pending"}
-                        </span>
-                      </div>
 
-                      <div className="flex items-center gap-4 text-[11px] text-white/60">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="size-3 text-[#FDB813]" /> {item.event_date || "No date set"}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="size-3 text-[#FDB813]" /> {item.start_time || "--"} - {item.end_time || "--"}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MapPin className="size-3 text-[#FDB813]" /> {item.venue || "No venue"}
-                        </span>
-                      </div>
-
-                      {item.status === "needs_revision" && item.admin_feedback && (
-                        <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 mt-2">
-                          <span className="font-bold flex items-center gap-1 mb-0.5 text-amber-400">
-                            <AlertCircle className="size-3.5" /> Coordinator Revision Notes:
+                        <div className="flex items-center gap-4 text-[11px] text-white/60">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="size-3 text-[#FDB813]" /> {item.event_date || "No date set"}
                           </span>
-                          <p className="text-amber-200/90">{item.admin_feedback}</p>
+                          <span className="flex items-center gap-1">
+                            <Clock className="size-3 text-[#FDB813]" /> {item.start_time || "--"} - {item.end_time || "--"}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="size-3 text-[#FDB813]" /> {item.venue || "No venue"}
+                          </span>
                         </div>
-                      )}
 
-                      {/* Cryptographic Clearance Seal & Mobile Syndication */}
-                      {item.status === "approved" && (
-                        <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5 mt-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
-                              <ShieldCheck className="size-3.5" /> Institutional Clearance Endorsement
+                        {aiPre?.reviewerSummary && (
+                          <div className="p-2.5 bg-[#0B132B] border border-blue-500/25 text-[11px] text-slate-300">
+                            <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider block mb-0.5">
+                              AI Pre-Screen Summary
                             </span>
-                            <span className="text-[9px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                              RA 8792 Signed
+                            {aiPre.reviewerSummary}
+                          </div>
+                        )}
+
+                        {item.status === "needs_revision" && item.admin_feedback && (
+                          <div className="p-3 bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 mt-2">
+                            <span className="font-bold flex items-center gap-1 mb-0.5 text-amber-400">
+                              <AlertCircle className="size-3.5" /> Coordinator Revision Notes:
                             </span>
+                            <p className="text-amber-200/90">{item.admin_feedback}</p>
                           </div>
-                          <div className="font-mono text-[9px] text-white/70 break-all bg-black/40 p-2 border border-white/5">
-                            SHA-256: {item.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
+                        )}
+
+                        {/* Cryptographic Clearance Seal & Mobile Syndication */}
+                        {item.status === "approved" && (
+                          <div className="p-3 bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5 mt-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-emerald-400 font-bold text-[11px] flex items-center gap-1.5">
+                                <ShieldCheck className="size-3.5" /> Institutional Clearance Endorsement
+                              </span>
+                              <span className="text-[9px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                                RA 8792 Signed
+                              </span>
+                            </div>
+                            <div className="font-mono text-[9px] text-white/70 break-all bg-black/40 p-2 border border-white/5">
+                              SHA-256: {item.clearance_hash || "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-white/60">
+                              <span>Status: Endorsed by Coordinator</span>
+                              <span className="text-emerald-400 font-medium">✓ Live on Campus Mobile App</span>
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between text-[10px] text-white/60">
-                            <span>Status: Endorsed by Coordinator</span>
-                            <span className="text-emerald-400 font-medium">✓ Live on Campus Mobile App</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>

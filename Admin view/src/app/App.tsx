@@ -22,8 +22,35 @@ import {
   Sparkles,
   PanelLeftClose,
   PanelLeftOpen,
+  Loader2,
+  AlertTriangle,
+  XCircle,
+  PenTool,
+  FileCheck2,
+  Upload,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Trash2,
+  Brain,
+  Save,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import {
+  aiLocalCache,
+  analyzeAiSurveyFeedback,
+  generateAiSurvey,
+  runBatchProposalTriage,
+  runDocumentPreScreen,
+  runProposalTriage,
+  type GeneratedQuestionType,
+  type GeneratedSurveyQuestion,
+  type GeneratedSurveyResult,
+  type PreScreenResult,
+  type SurveyDiagnosticsResult,
+  type SurveyResponseEntry,
+  type TriageResult,
+} from "../lib/aiClient";
 import adminBg from "../assets/admin-bg.jpeg";
 
 // Designated prototype coordinator credentials (or accept any valid @apc.edu.ph staff/admin email)
@@ -48,6 +75,17 @@ export interface EventRecord {
   registration_link?: string;
   has_qr_code?: boolean;
   qr_code_url?: string;
+  proposed_attendees?: number;
+  accepted_attendees?: number;
+  estimated_budget?: number;
+  has_external_guests?: boolean;
+  document_bucket?: string;
+  document_path?: string;
+  waiver_path?: string;
+  ai_prescreen_result?: PreScreenResult;
+  ai_triage_result?: TriageResult;
+  ai_survey_draft?: GeneratedSurveyResult;
+  ai_feedback_analysis?: SurveyDiagnosticsResult;
   created_at?: string;
 }
 
@@ -298,44 +336,70 @@ function getLeadTimeBadge(dateStr: string) {
   return { text: `🟢 In ${Math.round(diffHours / 24)}d`, isUrgent: false };
 }
 
-function computeDynamicUrgency(dateStr: string | null): {
+function getTierBadgeMeta(tier: "P1" | "P2" | "P3"): {
   tier: "P1" | "P2" | "P3";
   label: string;
   style: string;
 } {
-  if (!dateStr) {
-    return {
-      tier: "P3",
-      label: "P3 STD",
-      style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-none",
-    };
-  }
-
-  const target = new Date(dateStr).getTime();
-  const now = new Date().getTime();
-  const diffHours = (target - now) / (1000 * 60 * 60);
-
-  if (diffHours <= 96) {
+  if (tier === "P1") {
     return {
       tier: "P1",
       label: "P1 HIGH",
       style: "bg-red-500/20 text-red-400 border border-red-500/40 rounded-none",
     };
   }
-
-  if (diffHours <= 336) {
+  if (tier === "P2") {
     return {
       tier: "P2",
       label: "P2 MED",
       style: "bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-none",
     };
   }
-
   return {
     tier: "P3",
     label: "P3 STD",
     style: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-none",
   };
+}
+
+function computeDynamicUrgency(dateStr: string | null): {
+  tier: "P1" | "P2" | "P3";
+  label: string;
+  style: string;
+} {
+  if (!dateStr) return getTierBadgeMeta("P3");
+
+  const target = new Date(dateStr).getTime();
+  const now = new Date().getTime();
+  const diffHours = (target - now) / (1000 * 60 * 60);
+
+  if (diffHours <= 96) return getTierBadgeMeta("P1");
+  if (diffHours <= 336) return getTierBadgeMeta("P2");
+  return getTierBadgeMeta("P3");
+}
+
+function getDefaultSurveyResponses(eventTitle: string): SurveyResponseEntry[] {
+  return [
+    {
+      rating: 5,
+      comment: `The ${eventTitle} session was well-organized and the speakers gave practical examples we can apply in our coursework.`,
+    },
+    {
+      rating: 4,
+      comment:
+        "Very engaging program overall, though registration check-in took a bit longer than expected during the first 15 minutes.",
+    },
+    {
+      rating: 5,
+      comment:
+        "Loved the interactive Q&A and peer collaboration segments. Would definitely attend a follow-up workshop.",
+    },
+    {
+      rating: 3,
+      comment:
+        "Good content, but the audio in the back rows was slightly muffled and we ran out of time for hands-on troubleshooting.",
+    },
+  ];
 }
 
 export function CoordinatorInterface({
@@ -367,21 +431,75 @@ export function CoordinatorInterface({
   const [facilitatorAccounts, setFacilitatorAccounts] = useState<FacilitatorAccount[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
 
+  // ── AI Feature 1: Multimodal Document & Signature Pre-Screening State ──
+  const [preScreenMap, setPreScreenMap] = useState<Record<string, PreScreenResult>>(() =>
+    aiLocalCache.getPreScreens()
+  );
+  const [preScreenLoading, setPreScreenLoading] = useState(false);
+  const [preScreenError, setPreScreenError] = useState("");
+
+  // ── AI Feature 2: Dynamic Priority Queue Triage State ──
+  const [triageMap, setTriageMap] = useState<Record<string, TriageResult>>(() =>
+    aiLocalCache.getTriages()
+  );
+  const [triageLoading, setTriageLoading] = useState(false);
+  const [triageError, setTriageError] = useState("");
+  const [expandedTriageIds, setExpandedTriageIds] = useState<Record<number, boolean>>({});
+
+  // ── AI Feature 3: Post-Event Survey Generator State ──
+  const [surveyTargetEventId, setSurveyTargetEventId] = useState<number | "">("");
+  const [surveyCategory, setSurveyCategory] = useState("Academic Seminar / Workshop");
+  const [surveyObjectives, setSurveyObjectives] = useState("");
+  const [generatingSurvey, setGeneratingSurvey] = useState(false);
+  const [surveyGenError, setSurveyGenError] = useState("");
+  const [activeSurveyDraft, setActiveSurveyDraft] = useState<GeneratedSurveyResult | null>(null);
+  const [savedSurveyDrafts, setSavedSurveyDrafts] = useState<
+    Record<string, GeneratedSurveyResult>
+  >(() => aiLocalCache.getSurveyDrafts());
+  const [surveySaveMessage, setSurveySaveMessage] = useState("");
+
+  // ── AI Feature 4: Post-Event Survey Sentiment & Diagnostics State ──
+  const [feedbackResponsesByEvent, setFeedbackResponsesByEvent] = useState<
+    Record<number, SurveyResponseEntry[]>
+  >({});
+  const [feedbackAnalysisMap, setFeedbackAnalysisMap] = useState<
+    Record<string, SurveyDiagnosticsResult>
+  >(() => aiLocalCache.getFeedbackAnalyses());
+  const [analyzingEventId, setAnalyzingEventId] = useState<number | null>(null);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [expandedFeedbackEventId, setExpandedFeedbackEventId] = useState<number | null>(null);
+  const [newFeedbackRating, setNewFeedbackRating] = useState(5);
+  const [newFeedbackComment, setNewFeedbackComment] = useState("");
+
+  const getEventTriage = (ev: EventRecord): TriageResult | undefined =>
+    ev.ai_triage_result || triageMap[String(ev.event_id)];
+
+  const getEventPreScreen = (ev: EventRecord): PreScreenResult | undefined =>
+    ev.ai_prescreen_result || preScreenMap[String(ev.event_id)];
+
   const pendingReviewEvents = events.filter(
     (e) => e.status === "pending" || e.status === "needs_revision" || e.status === "revision"
   );
   const approvedEvents = events.filter((e) => e.status === "approved");
-  const p1UrgentCount = pendingReviewEvents.filter(
-    (e) => computeDynamicUrgency(e.event_date).tier === "P1"
-  ).length;
+  const p1UrgentCount = pendingReviewEvents.filter((e) => {
+    const aiTriage = getEventTriage(e);
+    const tier = aiTriage?.priorityTier || e.urgency_tier || computeDynamicUrgency(e.event_date).tier;
+    return tier === "P1";
+  }).length;
 
   const baseEventsList = reviewFilter === "PENDING" ? pendingReviewEvents : events;
 
   const triagedEvents = baseEventsList
-    .map((item) => ({
-      ...item,
-      calculatedUrgency: computeDynamicUrgency(item.event_date),
-    }))
+    .map((item) => {
+      const aiTriage = getEventTriage(item);
+      const effectiveTier =
+        aiTriage?.priorityTier || item.urgency_tier || computeDynamicUrgency(item.event_date).tier;
+      return {
+        ...item,
+        aiTriage,
+        calculatedUrgency: getTierBadgeMeta(effectiveTier),
+      };
+    })
     .filter((item) => {
       if (triageTier === "ALL") return true;
       return item.calculatedUrgency.tier === triageTier;
@@ -391,6 +509,8 @@ export function CoordinatorInterface({
       const diffPriority =
         priorityOrder[a.calculatedUrgency.tier] - priorityOrder[b.calculatedUrgency.tier];
       if (diffPriority !== 0) return diffPriority;
+      const compDiff = (b.aiTriage?.complexityScore || 0) - (a.aiTriage?.complexityScore || 0);
+      if (compDiff !== 0) return compDiff;
       return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
     });
 
@@ -459,6 +579,291 @@ export function CoordinatorInterface({
     triagedEvents.find((e) => e.event_id === selectedEventId) ||
     events.find((e) => e.event_id === selectedEventId) ||
     triagedEvents[0];
+
+  const selectedPreScreen = selectedEvent ? getEventPreScreen(selectedEvent) : undefined;
+  const selectedTriage = selectedEvent ? getEventTriage(selectedEvent) : undefined;
+
+  const persistOptionalEventColumns = async (
+    eventId: number,
+    fields: Record<string, unknown>
+  ) => {
+    try {
+      const { error } = await supabase
+        .from("events")
+        .update({ ...fields, updated_at: new Date().toISOString() })
+        .eq("event_id", eventId);
+      if (error) {
+        console.warn("Optional Supabase AI column update skipped:", error.message);
+      }
+    } catch {
+      // Gracefully fall back to local state/cache
+    }
+  };
+
+  // ── AI Handler 1: On-Demand Multimodal Document Inspection (Upload or Supabase Storage) ──
+  const handleInspectProposalDocument = async (ev: EventRecord, file?: File) => {
+    setPreScreenLoading(true);
+    setPreScreenError("");
+
+    try {
+      const storageDocuments =
+        !file && ev.document_path
+          ? [
+              { bucket: ev.document_bucket, path: ev.document_path },
+              ...(ev.waiver_path ? [{ bucket: ev.document_bucket, path: ev.waiver_path }] : []),
+            ]
+          : [];
+
+      const result = await runDocumentPreScreen({
+        files: file ? [file] : [],
+        storageDocuments,
+        eventId: ev.event_id,
+        metadata: {
+          title: ev.title,
+          organization: ev.organization,
+          eventDate: ev.event_date,
+          startTime: ev.start_time,
+          endTime: ev.end_time,
+          venue: ev.venue,
+          description: ev.description,
+          budget: ev.estimated_budget,
+          expectedAttendees: ev.proposed_attendees,
+          hasExternalGuests: ev.has_external_guests,
+        },
+      });
+
+      aiLocalCache.savePreScreen(ev.event_id, result);
+      setPreScreenMap((prev) => ({ ...prev, [String(ev.event_id)]: result }));
+      await persistOptionalEventColumns(ev.event_id, { ai_prescreen_result: result });
+    } catch (err) {
+      setPreScreenError(err instanceof Error ? err.message : "Failed to run AI document inspection.");
+    } finally {
+      setPreScreenLoading(false);
+    }
+  };
+
+  // ── AI Handler 2: Dynamic Priority Queue Triage (Batch & Single) ──
+  const handleRunBatchTriage = async () => {
+    const targets = baseEventsList;
+    if (targets.length === 0) return;
+    setTriageLoading(true);
+    setTriageError("");
+
+    try {
+      const results = await runBatchProposalTriage(
+        targets.map((ev) => ({
+          eventId: ev.event_id,
+          title: ev.title,
+          organization: ev.organization,
+          eventDate: ev.event_date,
+          venue: ev.venue,
+          description: ev.description,
+          expectedCrowdSize: ev.proposed_attendees,
+          budget: ev.estimated_budget,
+          hasExternalGuests: ev.has_external_guests,
+          tags: ev.tags,
+        }))
+      );
+
+      const nextMap = { ...triageMap };
+      for (const item of results) {
+        const triageObj: TriageResult = {
+          priorityTier: item.priorityTier,
+          complexityScore: item.complexityScore,
+          riskFlags: item.riskFlags,
+          rationale: item.rationale,
+        };
+        nextMap[String(item.eventId)] = triageObj;
+        aiLocalCache.saveTriage(item.eventId, triageObj);
+        void persistOptionalEventColumns(item.eventId, {
+          urgency_tier: item.priorityTier,
+          ai_triage_result: triageObj,
+        });
+      }
+      setTriageMap(nextMap);
+    } catch (err) {
+      setTriageError(err instanceof Error ? err.message : "AI Queue Triage failed.");
+    } finally {
+      setTriageLoading(false);
+    }
+  };
+
+  const handleRunSingleTriage = async (ev: EventRecord) => {
+    setTriageLoading(true);
+    setTriageError("");
+    try {
+      const result = await runProposalTriage({
+        eventId: ev.event_id,
+        title: ev.title,
+        organization: ev.organization,
+        eventDate: ev.event_date,
+        venue: ev.venue,
+        description: ev.description,
+        expectedCrowdSize: ev.proposed_attendees,
+        budget: ev.estimated_budget,
+        hasExternalGuests: ev.has_external_guests,
+        tags: ev.tags,
+      });
+      aiLocalCache.saveTriage(ev.event_id, result);
+      setTriageMap((prev) => ({ ...prev, [String(ev.event_id)]: result }));
+      await persistOptionalEventColumns(ev.event_id, {
+        urgency_tier: result.priorityTier,
+        ai_triage_result: result,
+      });
+    } catch (err) {
+      setTriageError(err instanceof Error ? err.message : "AI Triage failed.");
+    } finally {
+      setTriageLoading(false);
+    }
+  };
+
+  // ── AI Handler 3: Generate Post-Event Survey with AI ──
+  const handleGenerateSurveyWithAi = async () => {
+    const targetEv =
+      events.find((e) => e.event_id === surveyTargetEventId) ||
+      approvedEvents[0] ||
+      events[0];
+
+    const eventTitle = targetEv?.title || "Campus Academic Symposium";
+    const objectives =
+      surveyObjectives.trim() ||
+      targetEv?.description ||
+      `Evaluate student learning outcomes, logistics, and speaker effectiveness for ${eventTitle}.`;
+
+    setGeneratingSurvey(true);
+    setSurveyGenError("");
+    setSurveySaveMessage("");
+
+    try {
+      const result = await generateAiSurvey({
+        eventId: targetEv?.event_id,
+        eventTitle,
+        category: surveyCategory,
+        organization: targetEv?.organization,
+        venue: targetEv?.venue,
+        objectives,
+      });
+      setActiveSurveyDraft(result);
+    } catch (err) {
+      setSurveyGenError(err instanceof Error ? err.message : "Failed to generate survey with AI.");
+    } finally {
+      setGeneratingSurvey(false);
+    }
+  };
+
+  const handleSaveSurveyDraft = async () => {
+    if (!activeSurveyDraft) return;
+    const targetEv =
+      events.find((e) => e.event_id === surveyTargetEventId) ||
+      approvedEvents[0] ||
+      events[0];
+    const key = targetEv ? String(targetEv.event_id) : "custom-draft";
+    aiLocalCache.saveSurveyDraft(key, activeSurveyDraft);
+    setSavedSurveyDrafts((prev) => ({ ...prev, [key]: activeSurveyDraft }));
+    if (targetEv) {
+      await persistOptionalEventColumns(targetEv.event_id, {
+        ai_survey_draft: activeSurveyDraft,
+      });
+    }
+    setSurveySaveMessage("Survey saved and ready for deployment.");
+  };
+
+  const updateDraftQuestion = (
+    qId: string,
+    patch: Partial<GeneratedSurveyQuestion>
+  ) => {
+    setActiveSurveyDraft((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        questions: prev.questions.map((q) => (q.id === qId ? { ...q, ...patch } : q)),
+      };
+    });
+  };
+
+  const addDraftQuestion = () => {
+    setActiveSurveyDraft((prev) => {
+      const base: GeneratedSurveyResult = prev || {
+        surveyTitle: "Post-Event Student Evaluation",
+        description: "Please share your feedback to help improve future campus events.",
+        questions: [],
+      };
+      const nextId = `q${base.questions.length + 1}_${Date.now().toString(36).slice(-3)}`;
+      return {
+        ...base,
+        questions: [
+          ...base.questions,
+          {
+            id: nextId,
+            text: "How satisfied were you with the overall event experience?",
+            type: "rating_1_to_5",
+            required: true,
+            options: [],
+          },
+        ],
+      };
+    });
+  };
+
+  const removeDraftQuestion = (qId: string) => {
+    setActiveSurveyDraft((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        questions: prev.questions.filter((q) => q.id !== qId),
+      };
+    });
+  };
+
+  // ── AI Handler 4: Post-Event Feedback Sentiment & Diagnostics ──
+  const getResponsesForEvent = (ev: EventRecord): SurveyResponseEntry[] =>
+    feedbackResponsesByEvent[ev.event_id] || getDefaultSurveyResponses(ev.title);
+
+  const handleAddFeedbackResponse = (ev: EventRecord) => {
+    if (!newFeedbackComment.trim()) return;
+    const current = getResponsesForEvent(ev);
+    setFeedbackResponsesByEvent((prev) => ({
+      ...prev,
+      [ev.event_id]: [
+        { rating: newFeedbackRating, comment: newFeedbackComment.trim() },
+        ...current,
+      ],
+    }));
+    setNewFeedbackComment("");
+    setNewFeedbackRating(5);
+  };
+
+  const handleAnalyzeFeedbackWithAi = async (ev: EventRecord) => {
+    const responses = getResponsesForEvent(ev);
+    const rated = responses.filter((r) => typeof r.rating === "number");
+    const avgRating =
+      rated.length > 0
+        ? Number((rated.reduce((s, r) => s + (r.rating || 0), 0) / rated.length).toFixed(2))
+        : undefined;
+
+    setAnalyzingEventId(ev.event_id);
+    setExpandedFeedbackEventId(ev.event_id);
+    setFeedbackError("");
+
+    try {
+      const result = await analyzeAiSurveyFeedback({
+        eventId: ev.event_id,
+        eventTitle: ev.title,
+        organization: ev.organization,
+        eventDate: ev.event_date,
+        averageRating: avgRating,
+        totalResponses: responses.length,
+        responses,
+      });
+      aiLocalCache.saveFeedbackAnalysis(ev.event_id, result);
+      setFeedbackAnalysisMap((prev) => ({ ...prev, [String(ev.event_id)]: result }));
+      await persistOptionalEventColumns(ev.event_id, { ai_feedback_analysis: result });
+    } catch (err) {
+      setFeedbackError(err instanceof Error ? err.message : "AI feedback analysis failed.");
+    } finally {
+      setAnalyzingEventId(null);
+    }
+  };
 
   const handleUpdateStatus = async (
     status: "approved" | "rejected" | "revision",
@@ -797,7 +1202,7 @@ export function CoordinatorInterface({
         {activeNav === "approvals" && (
           <div className="flex-1 flex h-full w-full overflow-hidden bg-[#0B132B] text-white">
             {/* LEFT COLUMN: Event Queue List */}
-            <div className="w-[380px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
+            <div className="w-[390px] border-r border-white/10 flex flex-col h-full bg-[#0D1836] shrink-0">
               <div className="p-4 border-b border-white/10 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -805,7 +1210,7 @@ export function CoordinatorInterface({
                       Pending Approvals
                     </h1>
                     <p className="text-xs text-[#8D99AE] mt-0.5">
-                      {triagedEvents.length} proposal{triagedEvents.length === 1 ? "" : "s"} in view
+                      {triagedEvents.length} proposal{triagedEvents.length === 1 ? "" : "s"} sorted by priority
                     </p>
                   </div>
                   <div className="flex items-center gap-1 bg-[#090F24] p-1 border border-white/10 text-[10px]">
@@ -829,6 +1234,33 @@ export function CoordinatorInterface({
                     </button>
                   </div>
                 </div>
+
+                {/* Dynamic AI Priority Triage Action */}
+                <button
+                  type="button"
+                  onClick={handleRunBatchTriage}
+                  disabled={triageLoading || baseEventsList.length === 0}
+                  className="w-full py-2 px-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-45"
+                >
+                  {triageLoading ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin text-[#FDB813]" />
+                      Running AI Priority Queue Triage...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="size-3.5 text-[#FDB813]" />
+                      Run AI Priority Queue Triage
+                    </>
+                  )}
+                </button>
+
+                {triageError && (
+                  <div className="p-2 bg-red-950/30 border border-red-500/40 text-[11px] text-red-300 flex items-start gap-1.5">
+                    <AlertCircle className="size-3.5 shrink-0 mt-0.5 text-red-400" />
+                    <span>{triageError}</span>
+                  </div>
+                )}
 
                 {/* Urgency Filter Tabs */}
                 <div className="grid grid-cols-4 gap-1 p-1 bg-[#090F24] rounded-none border border-white/5 text-[11px]">
@@ -869,12 +1301,14 @@ export function CoordinatorInterface({
                   const isSelected = selectedEvent?.event_id === item.event_id;
                   const leadTime = getLeadTimeBadge(item.event_date);
                   const urgency = item.calculatedUrgency;
+                  const aiTriage = item.aiTriage;
+                  const isRationaleOpen = Boolean(expandedTriageIds[item.event_id]);
 
                   return (
                     <div
                       key={item.event_id}
                       onClick={() => setSelectedEventId(item.event_id)}
-                      className={`p-4 rounded-none border transition-all cursor-pointer ${
+                      className={`p-4 rounded-none border transition-all cursor-pointer text-left ${
                         isSelected
                           ? "bg-[#1C2541] border-[#FDB813] shadow-md"
                           : "bg-[#16203D] border-white/5 hover:border-white/20"
@@ -883,8 +1317,15 @@ export function CoordinatorInterface({
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <h3 className="font-semibold text-sm truncate text-white">{item.title}</h3>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-none border ${urgency.style}`}>
-                            {urgency.label}
+                          <span
+                            title={
+                              aiTriage
+                                ? `AI Triage (${aiTriage.priorityTier}, Complexity ${aiTriage.complexityScore}/10): ${aiTriage.rationale}`
+                                : "Lead-time estimate (run AI Triage for full risk evaluation)"
+                            }
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-none border ${urgency.style}`}
+                          >
+                            {aiTriage ? `${aiTriage.priorityTier} · C${aiTriage.complexityScore}` : urgency.label}
                           </span>
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-none capitalize ${
@@ -909,7 +1350,7 @@ export function CoordinatorInterface({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-3 text-[11px] text-white/60 mb-2.5">
+                      <div className="flex items-center gap-3 text-[11px] text-white/60 mb-2">
                         <span className="flex items-center gap-1">
                           <Calendar className="size-3 text-[#FDB813]" /> {item.event_date || "No date set"}
                         </span>
@@ -918,16 +1359,61 @@ export function CoordinatorInterface({
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap gap-1">
-                        {(item.tags || []).slice(0, 3).map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-2 py-0.5 rounded-none bg-white/5 text-[10px] text-white/70 border border-white/5"
+                      {aiTriage && (
+                        <div className="mt-2 pt-2 border-t border-white/10 space-y-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedTriageIds((prev) => ({
+                                ...prev,
+                                [item.event_id]: !prev[item.event_id],
+                              }));
+                            }}
+                            className="w-full flex items-center justify-between text-[10px] font-semibold text-[#FDB813] hover:text-amber-300 cursor-pointer"
                           >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
+                            <span className="flex items-center gap-1">
+                              <Sparkles className="size-3" /> AI Triage Rationale (Complexity {aiTriage.complexityScore}/10)
+                            </span>
+                            {isRationaleOpen ? (
+                              <ChevronUp className="size-3" />
+                            ) : (
+                              <ChevronDown className="size-3" />
+                            )}
+                          </button>
+
+                          {isRationaleOpen && (
+                            <div className="p-2 bg-[#090F24] border border-white/10 text-[11px] space-y-1.5">
+                              <p className="text-slate-200 leading-relaxed">{aiTriage.rationale}</p>
+                              {aiTriage.riskFlags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                  {aiTriage.riskFlags.map((flag, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-1.5 py-0.5 bg-red-500/15 border border-red-500/30 text-red-300 text-[9px]"
+                                    >
+                                      ⚑ {flag}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {!aiTriage && (item.tags || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {(item.tags || []).slice(0, 3).map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-2 py-0.5 rounded-none bg-white/5 text-[10px] text-white/70 border border-white/5"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -936,22 +1422,76 @@ export function CoordinatorInterface({
 
             {/* RIGHT COLUMN: Detail & Decision Pane */}
             {selectedEvent ? (
-              <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0B132B]">
+              <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[#0B132B] text-left">
                 <div className="p-7 border-b border-white/10 bg-[#0E1733] flex items-start justify-between gap-4">
                   <div>
-                    <div className="flex items-center gap-3 mb-1">
+                    <div className="flex flex-wrap items-center gap-2.5 mb-1">
                       <h2 className="text-2xl font-bold tracking-tight text-white">
                         {selectedEvent.title}
                       </h2>
                       <span className="px-2.5 py-0.5 rounded-none text-xs font-semibold uppercase tracking-wider bg-blue-500/20 text-blue-400 border border-blue-500/30">
                         {selectedEvent.status ? selectedEvent.status.replace("_", " ") : "pending"}
                       </span>
+                      <span
+                        className={`px-2 py-0.5 text-[11px] font-bold border ${
+                          getTierBadgeMeta(
+                            selectedTriage?.priorityTier ||
+                              selectedEvent.urgency_tier ||
+                              computeDynamicUrgency(selectedEvent.event_date).tier
+                          ).style
+                        }`}
+                      >
+                        {selectedTriage
+                          ? `${selectedTriage.priorityTier} · Complexity ${selectedTriage.complexityScore}/10`
+                          : computeDynamicUrgency(selectedEvent.event_date).label}
+                      </span>
                     </div>
                     <p className="text-sm text-[#8D99AE]">{selectedEvent.organization || "Student Org"}</p>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRunSingleTriage(selectedEvent)}
+                    disabled={triageLoading}
+                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-semibold text-[#FDB813] flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-40"
+                  >
+                    {triageLoading ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3.5" />
+                    )}
+                    AI Triage
+                  </button>
                 </div>
 
-                <div className="p-7 space-y-7 flex-1">
+                <div className="p-7 space-y-6 flex-1">
+                  {/* AI Triage Rationale & Risk Flags Banner */}
+                  {selectedTriage && (
+                    <div className="p-4 bg-[#16203D] border border-amber-500/30 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-[#FDB813] uppercase tracking-wider flex items-center gap-1.5">
+                          <Brain className="size-3.5" /> Dynamic AI Priority Triage ({selectedTriage.priorityTier})
+                        </span>
+                        <span className="font-mono text-[11px] text-slate-300">
+                          Complexity Score: <b className="text-white">{selectedTriage.complexityScore}/10</b>
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-200 leading-relaxed">{selectedTriage.rationale}</p>
+                      {selectedTriage.riskFlags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {selectedTriage.riskFlags.map((flag, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-medium"
+                            >
+                              ⚑ {flag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <h3 className="text-xs font-bold text-[#8D99AE] uppercase tracking-wider mb-3">
                       Event Logistics
@@ -980,51 +1520,193 @@ export function CoordinatorInterface({
                     </div>
                   </div>
 
-                  {/* AI Multimodal Pre-Check Compliance Inspector (UC-02) */}
-                  <div className="bg-[#16203D] border border-blue-500/30 rounded-none p-5 space-y-3.5">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  {/* AI Multimodal Pre-Check Compliance Inspector (Gemini 2.5 Flash) */}
+                  <div className="bg-[#16203D] border border-blue-500/30 rounded-none p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
                       <div className="flex items-center gap-2">
-                        <span className="flex size-2 rounded-none bg-emerald-400 animate-pulse" />
+                        <FileCheck2 className="size-4 text-[#FDB813]" />
                         <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                          Pre-Check Compliance Inspection
+                          Multimodal AI Document & Signature Pre-Screening
                         </h3>
                       </div>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-none bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                        Validated
-                      </span>
+
+                      <div className="flex items-center gap-2">
+                        {selectedEvent.document_path && (
+                          <button
+                            type="button"
+                            disabled={preScreenLoading}
+                            onClick={() => handleInspectProposalDocument(selectedEvent)}
+                            className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-[11px] font-semibold text-blue-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
+                          >
+                            {preScreenLoading ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="size-3 text-[#FDB813]" />
+                            )}
+                            Re-Inspect Stored PDF
+                          </button>
+                        )}
+                        <label className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/15 text-[11px] font-semibold text-white flex items-center gap-1.5 cursor-pointer">
+                          <Upload className="size-3 text-[#FDB813]" />
+                          {preScreenLoading ? "Inspecting..." : "Inspect PDF/Image"}
+                          <input
+                            type="file"
+                            accept=".pdf,image/png,image/jpeg"
+                            className="hidden"
+                            disabled={preScreenLoading}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                void handleInspectProposalDocument(selectedEvent, file);
+                              }
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                      <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                        <span className="text-[10px] text-[#8D99AE]">Adviser Endorsement</span>
-                        <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                          ✓ Signature Detected
-                        </span>
+                    {preScreenError && (
+                      <div className="p-3 bg-red-950/30 border border-red-500/40 text-xs text-red-300 flex items-start gap-2">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-red-400" />
+                        <span>{preScreenError}</span>
                       </div>
+                    )}
 
-                      <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                        <span className="text-[10px] text-[#8D99AE]">Mandatory Requirements</span>
-                        <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                          ✓ Requirements Met
-                        </span>
-                      </div>
+                    {selectedPreScreen ? (
+                      <div className="space-y-3.5 text-xs">
+                        {/* Status + Completeness Score */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-[#0D1836] border border-white/10">
+                          <div className="flex items-center gap-2">
+                            {selectedPreScreen.overallStatus === "PASSED" ? (
+                              <CheckCircle2 className="size-4 text-emerald-400" />
+                            ) : selectedPreScreen.overallStatus === "NEEDS_REVISION" ? (
+                              <AlertTriangle className="size-4 text-amber-400" />
+                            ) : (
+                              <XCircle className="size-4 text-red-400" />
+                            )}
+                            <span className="font-bold text-white">
+                              Status: {selectedPreScreen.overallStatus.replace("_", " ")}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-[#FDB813]">
+                            Completeness: {selectedPreScreen.completenessScore}/100
+                          </span>
+                        </div>
 
-                      <div className="p-3 rounded-none bg-[#0D1836] border border-white/5 flex flex-col gap-1">
-                        <span className="text-[10px] text-[#8D99AE]">Mandatory Waivers</span>
-                        <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
-                          ✓ Waivers Attached
-                        </span>
-                      </div>
-                    </div>
+                        {/* Signature Verification */}
+                        <div className="p-3.5 bg-[#0D1836] border border-white/10 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                              <PenTool className="size-3.5 text-[#FDB813]" /> Visual Signature Verification
+                            </span>
+                            <span
+                              className={`text-[11px] font-bold ${
+                                selectedPreScreen.signatureCheck.signaturesDetected
+                                  ? "text-emerald-400"
+                                  : "text-red-400"
+                              }`}
+                            >
+                              {selectedPreScreen.signatureCheck.signaturesDetected
+                                ? "✓ Signatures Visually Detected"
+                                : "✗ No Signatures Detected"}
+                            </span>
+                          </div>
 
-                    <div className="p-3.5 rounded-none bg-[#090F24] border border-white/5 text-xs space-y-1">
-                      <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                        Pre-Check Gap Analysis:
+                          {selectedPreScreen.signatureCheck.detectedSignatories.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {selectedPreScreen.signatureCheck.detectedSignatories.map((sig, i) => (
+                                <span
+                                  key={i}
+                                  className="px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px]"
+                                >
+                                  ✓ {sig}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {selectedPreScreen.signatureCheck.missingSignatureLines.length > 0 && (
+                            <div className="p-2.5 bg-red-500/15 border border-red-500/40 text-red-200 space-y-1">
+                              <div className="text-[10px] font-bold uppercase text-red-300">
+                                Missing / Blank Signature Lines
+                              </div>
+                              <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                                {selectedPreScreen.signatureCheck.missingSignatureLines.map((line, i) => (
+                                  <li key={i}>{line}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {selectedPreScreen.signatureCheck.visualNotes && (
+                            <p className="text-[11px] text-slate-300">
+                              <span className="text-slate-400 font-semibold">Visual notes: </span>
+                              {selectedPreScreen.signatureCheck.visualNotes}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Checklist Evaluation */}
+                        {selectedPreScreen.checklistEvaluation.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {selectedPreScreen.checklistEvaluation.map((item, idx) => (
+                              <div
+                                key={idx}
+                                className="p-3 bg-[#0D1836] border border-white/5 flex flex-col gap-1"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-semibold text-white">
+                                    {item.requirement}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold shrink-0 ${
+                                      item.met ? "text-emerald-400" : "text-amber-400"
+                                    }`}
+                                  >
+                                    {item.met ? "✓ Met" : "✗ Gap"}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-[#8D99AE] leading-relaxed">
+                                  {item.evidence}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Flagged Inconsistencies */}
+                        {selectedPreScreen.inconsistencies.length > 0 && (
+                          <div className="p-3 bg-amber-500/15 border border-amber-500/40 text-amber-200 space-y-1">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                              <AlertTriangle className="size-3.5" /> Flagged Form vs. Document Inconsistencies
+                            </div>
+                            <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                              {selectedPreScreen.inconsistencies.map((inc, idx) => (
+                                <li key={idx}>{inc}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Reviewer Summary */}
+                        <div className="p-3.5 bg-[#090F24] border border-white/5 space-y-1">
+                          <div className="text-[10px] font-bold text-[#FDB813] uppercase tracking-wider">
+                            AI Reviewer Summary
+                          </div>
+                          <p className="text-white/85 leading-relaxed text-[11px]">
+                            {selectedPreScreen.reviewerSummary}
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-white/80 leading-relaxed text-[11px]">
-                        All required clearance attachments, participant consent forms, and physical adviser endorsements were verified optically via Gemini Multimodal. Proposal is clear for administrative endorsement.
-                      </p>
-                    </div>
+                    ) : (
+                      <div className="p-4 bg-[#090F24] border border-white/5 text-xs text-[#8D99AE] space-y-1">
+                        <p className="text-white font-semibold">No AI pre-screening result recorded yet.</p>
+                        <p>
+                          Upload the submitted APF/waiver PDF or scanned image above (or run it from the Facilitator Portal) to verify signatures, institutional requirements, and metadata consistency with Gemini 2.5 Flash.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -1120,57 +1802,491 @@ export function CoordinatorInterface({
 
         {/* ── TAB 3: SURVEYS & POST-EVENT EVALUATIONS (UC-04 & UC-06) ── */}
         {activeNav === "surveys" && (
-          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
-            <div className="border-b border-white/10 pb-4 text-left">
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 text-left">
+            <div className="border-b border-white/10 pb-4">
               <h1 className="text-lg font-bold text-white flex items-center gap-2">
-                <Sparkles className="size-4 text-[#FDB813]" /> Post-Event Evaluation Surveys (UC-04 & UC-06)
+                <Sparkles className="size-4 text-[#FDB813]" /> Post-Event Evaluation Surveys & AI Diagnostics
               </h1>
               <p className="text-xs text-[#8D99AE] mt-0.5">
-                AI-generated survey matrices deployed to verified mobile attendees upon event conclusion.
+                Generate tailored student questionnaires with Gemini 2.5 Flash and synthesize executive sentiment diagnostics from post-event feedback.
               </p>
             </div>
 
-            {approvedEvents.length === 0 ? (
-              <div className="p-10 bg-[#16203D] border border-white/10 text-center text-xs text-[#8D99AE]">
-                No approved events available yet for survey monitoring.
+            {/* ── SECTION A: AI-ASSISTED POST-EVENT SURVEY GENERATOR ── */}
+            <div className="bg-[#16203D] border border-blue-500/30 p-6 space-y-5 rounded-none">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-[#FDB813] flex items-center gap-2">
+                    <Sparkles className="size-4" /> AI-Assisted Post-Event Survey Generator
+                  </h2>
+                  <p className="text-[11px] text-[#8D99AE] mt-0.5">
+                    Select an event, refine objectives, and generate an editable student evaluation questionnaire.
+                  </p>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  Gemini 2.5 Flash
+                </span>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                {approvedEvents.map((ev, index) => {
-                  const responsesCount = 42 + index * 17;
-                  const satisfactionScore = (4.6 + (index % 4) * 0.1).toFixed(1);
-                  return (
-                    <div key={ev.event_id} className="p-5 bg-[#16203D] border border-white/10 space-y-3 rounded-none">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="text-sm font-bold text-white">{ev.title}</h3>
-                          <p className="text-xs text-[#8D99AE]">
-                            {ev.organization || "Student Org"} • {ev.event_date}
-                          </p>
-                        </div>
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                          Active Survey
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-center">
-                        <div className="p-2 bg-[#0B132B]">
-                          <div className="text-[10px] text-[#8D99AE]">Verified Responses</div>
-                          <div className="text-sm font-bold text-white">{responsesCount}</div>
-                        </div>
-                        <div className="p-2 bg-[#0B132B]">
-                          <div className="text-[10px] text-[#8D99AE]">Avg Rating</div>
-                          <div className="text-sm font-bold text-[#FDB813]">{satisfactionScore} / 5.0</div>
-                        </div>
-                        <div className="p-2 bg-[#0B132B]">
-                          <div className="text-[10px] text-[#8D99AE]">AI Synthesis</div>
-                          <div className="text-sm font-bold text-emerald-400">Ready</div>
-                        </div>
-                      </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-[#8D99AE] block mb-1">Target Event</label>
+                  <select
+                    value={surveyTargetEventId || (approvedEvents[0]?.event_id ?? events[0]?.event_id ?? "")}
+                    onChange={(e) => {
+                      const nextId = Number(e.target.value);
+                      setSurveyTargetEventId(nextId);
+                      const found = events.find((ev) => ev.event_id === nextId);
+                      if (found?.description && !surveyObjectives.trim()) {
+                        setSurveyObjectives(found.description);
+                      }
+                      const existingDraft =
+                        found?.ai_survey_draft || savedSurveyDrafts[String(nextId)];
+                      if (existingDraft) {
+                        setActiveSurveyDraft(existingDraft);
+                      }
+                    }}
+                    className="w-full p-2.5 bg-[#0B132B] border border-white/15 text-xs text-white focus:border-[#FDB813] outline-none rounded-none"
+                  >
+                    {events.length === 0 ? (
+                      <option value="">Default Sample Event</option>
+                    ) : (
+                      events.map((ev) => (
+                        <option key={ev.event_id} value={ev.event_id}>
+                          {ev.title} ({ev.status})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-[#8D99AE] block mb-1">Event Category</label>
+                  <select
+                    value={surveyCategory}
+                    onChange={(e) => setSurveyCategory(e.target.value)}
+                    className="w-full p-2.5 bg-[#0B132B] border border-white/15 text-xs text-white focus:border-[#FDB813] outline-none rounded-none"
+                  >
+                    <option value="Academic Seminar / Workshop">Academic Seminar / Workshop</option>
+                    <option value="Hackathon / Technical Competition">Hackathon / Technical Competition</option>
+                    <option value="Student Orientation / Assembly">Student Orientation / Assembly</option>
+                    <option value="Cultural / Org Fair">Cultural / Org Fair</option>
+                    <option value="Community Outreach / Off-Campus">Community Outreach / Off-Campus</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-[#8D99AE] block mb-1">
+                  Event Objectives & Focus Areas (Optional — defaults to proposal description)
+                </label>
+                <textarea
+                  rows={2}
+                  value={surveyObjectives}
+                  onChange={(e) => setSurveyObjectives(e.target.value)}
+                  placeholder="e.g., Measure technical skill acquisition, venue & Wi-Fi reliability, mentor effectiveness, and suggestions for next term..."
+                  className="w-full p-2.5 bg-[#0B132B] border border-white/15 text-xs text-white focus:border-[#FDB813] outline-none resize-none rounded-none"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleGenerateSurveyWithAi}
+                  disabled={generatingSurvey}
+                  className="px-5 py-2.5 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+                >
+                  {generatingSurvey ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Generating Questions...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="size-3.5" />
+                      Generate Survey with AI
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={addDraftQuestion}
+                  className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-semibold text-white flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="size-3.5 text-[#FDB813]" /> Add Custom Question
+                </button>
+              </div>
+
+              {surveyGenError && (
+                <div className="p-3 bg-red-950/30 border border-red-500/40 text-xs text-red-300 flex items-start gap-2">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5 text-red-400" />
+                  <span>{surveyGenError}</span>
+                </div>
+              )}
+
+              {/* Editable AI-Generated Questionnaire */}
+              {activeSurveyDraft && (
+                <div className="p-5 bg-[#0B132B] border border-white/10 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-mono uppercase text-[#8D99AE] block mb-1">
+                        Survey Title (Editable)
+                      </label>
+                      <input
+                        value={activeSurveyDraft.surveyTitle}
+                        onChange={(e) =>
+                          setActiveSurveyDraft({ ...activeSurveyDraft, surveyTitle: e.target.value })
+                        }
+                        className="w-full p-2 bg-[#16203D] border border-white/15 text-xs font-semibold text-white focus:border-[#FDB813] outline-none"
+                      />
                     </div>
-                  );
-                })}
+                    <div>
+                      <label className="text-[10px] font-mono uppercase text-[#8D99AE] block mb-1">
+                        Respondent Instructions (Editable)
+                      </label>
+                      <input
+                        value={activeSurveyDraft.description}
+                        onChange={(e) =>
+                          setActiveSurveyDraft({ ...activeSurveyDraft, description: e.target.value })
+                        }
+                        className="w-full p-2 bg-[#16203D] border border-white/15 text-xs text-slate-200 focus:border-[#FDB813] outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <div className="text-[10px] font-mono uppercase text-[#FDB813]">
+                      Editable Questions ({activeSurveyDraft.questions.length})
+                    </div>
+                    {activeSurveyDraft.questions.map((q, idx) => (
+                      <div
+                        key={q.id}
+                        className="p-3.5 bg-[#16203D] border border-white/10 space-y-2.5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-mono text-[#FDB813] font-bold">
+                            Q{idx + 1}
+                          </span>
+                          <input
+                            value={q.text}
+                            onChange={(e) => updateDraftQuestion(q.id, { text: e.target.value })}
+                            className="flex-1 min-w-[220px] p-1.5 bg-[#0B132B] border border-white/15 text-xs text-white focus:border-[#FDB813] outline-none"
+                          />
+                          <select
+                            value={q.type}
+                            onChange={(e) => {
+                              const nextType = e.target.value as GeneratedQuestionType;
+                              updateDraftQuestion(q.id, {
+                                type: nextType,
+                                options:
+                                  nextType === "multiple_choice" && q.options.length === 0
+                                    ? ["Very Satisfied", "Satisfied", "Neutral", "Needs Improvement"]
+                                    : nextType === "multiple_choice"
+                                    ? q.options
+                                    : [],
+                              });
+                            }}
+                            className="p-1.5 bg-[#0B132B] border border-white/15 text-[11px] text-white outline-none"
+                          >
+                            <option value="rating_1_to_5">1–5 Rating</option>
+                            <option value="multiple_choice">Multiple Choice</option>
+                            <option value="open_text">Open Text</option>
+                          </select>
+                          <label className="flex items-center gap-1 text-[11px] text-slate-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={q.required}
+                              onChange={(e) =>
+                                updateDraftQuestion(q.id, { required: e.target.checked })
+                              }
+                              className="accent-[#FDB813]"
+                            />
+                            Required
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removeDraftQuestion(q.id)}
+                            title="Remove question"
+                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-white/5 cursor-pointer"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+
+                        {q.type === "multiple_choice" && (
+                          <div className="pl-6 space-y-1">
+                            <label className="text-[10px] text-[#8D99AE] block">
+                              Options (comma-separated)
+                            </label>
+                            <input
+                              value={q.options.join(", ")}
+                              onChange={(e) =>
+                                updateDraftQuestion(q.id, {
+                                  options: e.target.value
+                                    .split(",")
+                                    .map((s) => s.trim())
+                                    .filter(Boolean),
+                                })
+                              }
+                              className="w-full p-1.5 bg-[#0B132B] border border-white/10 text-[11px] text-slate-200 focus:border-[#FDB813] outline-none"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <span className="text-xs text-emerald-400">{surveySaveMessage}</span>
+                    <button
+                      type="button"
+                      onClick={handleSaveSurveyDraft}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="size-3.5" /> Save Survey Questionnaire
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── SECTION B: POST-EVENT FEEDBACK SENTIMENT & DIAGNOSTICS SYNTHESIS ── */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                  <Brain className="size-4 text-[#FDB813]" /> Event Surveys & AI Feedback Diagnostics
+                </h2>
+                <span className="text-[11px] text-[#8D99AE]">
+                  {approvedEvents.length} approved event{approvedEvents.length === 1 ? "" : "s"}
+                </span>
               </div>
-            )}
+
+              {feedbackError && (
+                <div className="p-3 bg-red-950/30 border border-red-500/40 text-xs text-red-300 flex items-start gap-2">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5 text-red-400" />
+                  <span>{feedbackError}</span>
+                </div>
+              )}
+
+              {(approvedEvents.length > 0 ? approvedEvents : events).length === 0 ? (
+                <div className="p-10 bg-[#16203D] border border-white/10 text-center text-xs text-[#8D99AE]">
+                  No events available yet for post-event feedback analysis.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-5">
+                  {(approvedEvents.length > 0 ? approvedEvents : events).map((ev) => {
+                    const responses = getResponsesForEvent(ev);
+                    const rated = responses.filter((r) => typeof r.rating === "number");
+                    const avgRating =
+                      rated.length > 0
+                        ? (rated.reduce((s, r) => s + (r.rating || 0), 0) / rated.length).toFixed(1)
+                        : "–";
+                    const analysis =
+                      ev.ai_feedback_analysis || feedbackAnalysisMap[String(ev.event_id)];
+                    const savedDraft = ev.ai_survey_draft || savedSurveyDrafts[String(ev.event_id)];
+                    const isExpanded = expandedFeedbackEventId === ev.event_id;
+                    const isAnalyzing = analyzingEventId === ev.event_id;
+
+                    return (
+                      <div
+                        key={ev.event_id}
+                        className="p-5 bg-[#16203D] border border-white/10 space-y-4 rounded-none"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-bold text-white">{ev.title}</h3>
+                              {savedDraft && (
+                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[10px] font-semibold">
+                                  {savedDraft.questions.length} AI Questions Saved
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#8D99AE]">
+                              {ev.organization || "Student Org"} • {ev.event_date || "No date"}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedFeedbackEventId(isExpanded ? null : ev.event_id)
+                              }
+                              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/15 text-xs text-slate-200 cursor-pointer"
+                            >
+                              {isExpanded ? "Hide Responses" : `View / Add Responses (${responses.length})`}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isAnalyzing}
+                              onClick={() => handleAnalyzeFeedbackWithAi(ev)}
+                              className="px-3.5 py-1.5 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              {isAnalyzing ? (
+                                <>
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                  Analyzing...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="size-3.5" />
+                                  Analyze Feedback with AI
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-center">
+                          <div className="p-2.5 bg-[#0B132B]">
+                            <div className="text-[10px] text-[#8D99AE]">Collected Responses</div>
+                            <div className="text-sm font-bold text-white">{responses.length}</div>
+                          </div>
+                          <div className="p-2.5 bg-[#0B132B]">
+                            <div className="text-[10px] text-[#8D99AE]">Avg Rating</div>
+                            <div className="text-sm font-bold text-[#FDB813]">{avgRating} / 5.0</div>
+                          </div>
+                          <div className="p-2.5 bg-[#0B132B]">
+                            <div className="text-[10px] text-[#8D99AE]">AI Sentiment</div>
+                            <div
+                              className={`text-sm font-bold ${
+                                analysis
+                                  ? analysis.overallSentiment === "Positive"
+                                    ? "text-emerald-400"
+                                    : analysis.overallSentiment === "Mixed"
+                                    ? "text-amber-400"
+                                    : "text-red-400"
+                                  : "text-slate-400"
+                              }`}
+                            >
+                              {analysis
+                                ? `${analysis.overallSentiment} (${analysis.sentimentScore}/100)`
+                                : "Not Analyzed"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Collapsible Raw Survey Responses Input/Viewer */}
+                        {isExpanded && (
+                          <div className="p-4 bg-[#0B132B] border border-white/10 space-y-3">
+                            <div className="text-[10px] font-mono uppercase text-[#FDB813]">
+                              Attendee Responses Analyzed by AI
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <select
+                                value={newFeedbackRating}
+                                onChange={(e) => setNewFeedbackRating(Number(e.target.value))}
+                                className="p-2 bg-[#16203D] border border-white/15 text-xs text-white outline-none"
+                              >
+                                {[5, 4, 3, 2, 1].map((r) => (
+                                  <option key={r} value={r}>
+                                    {r} ★
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                value={newFeedbackComment}
+                                onChange={(e) => setNewFeedbackComment(e.target.value)}
+                                placeholder="Add a real student feedback response to include in AI analysis..."
+                                className="flex-1 min-w-[200px] p-2 bg-[#16203D] border border-white/15 text-xs text-white focus:border-[#FDB813] outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleAddFeedbackResponse(ev)}
+                                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-xs font-semibold text-white cursor-pointer"
+                              >
+                                Add
+                              </button>
+                            </div>
+                            <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                              {responses.map((r, i) => (
+                                <div
+                                  key={i}
+                                  className="p-2 bg-[#16203D] border border-white/5 text-[11px] flex items-start justify-between gap-3"
+                                >
+                                  <span className="text-slate-200">{r.comment}</span>
+                                  <span className="text-[#FDB813] font-mono shrink-0">
+                                    {r.rating ?? "–"}/5
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Structured AI Sentiment & Executive Diagnostics Panel */}
+                        {analysis && (
+                          <div className="p-4 bg-[#090F24] border border-blue-500/30 space-y-3.5 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                              <span className="font-bold text-white flex items-center gap-1.5">
+                                <Sparkles className="size-3.5 text-[#FDB813]" /> AI Executive Sentiment Diagnostics
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 text-[11px] font-bold border ${
+                                  analysis.overallSentiment === "Positive"
+                                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                    : analysis.overallSentiment === "Mixed"
+                                    ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                    : "bg-red-500/15 text-red-300 border-red-500/30"
+                                }`}
+                              >
+                                {analysis.overallSentiment} · Score {analysis.sentimentScore}/100
+                              </span>
+                            </div>
+
+                            <div className="p-3 bg-[#16203D] border border-white/5">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-[#FDB813] mb-1">
+                                Executive Summary
+                              </div>
+                              <p className="text-slate-200 leading-relaxed">
+                                {analysis.executiveSummary}
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div className="p-3 bg-[#16203D] border border-emerald-500/25 space-y-1.5">
+                                <div className="text-[10px] font-bold uppercase text-emerald-400">
+                                  Key Strengths
+                                </div>
+                                <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-200">
+                                  {analysis.keyStrengths.map((s, idx) => (
+                                    <li key={idx}>{s}</li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              <div className="p-3 bg-[#16203D] border border-amber-500/25 space-y-1.5">
+                                <div className="text-[10px] font-bold uppercase text-amber-400">
+                                  Areas for Improvement
+                                </div>
+                                <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-200">
+                                  {analysis.areasForImprovement.map((s, idx) => (
+                                    <li key={idx}>{s}</li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              <div className="p-3 bg-[#16203D] border border-blue-500/25 space-y-1.5">
+                                <div className="text-[10px] font-bold uppercase text-blue-300">
+                                  Actionable Recommendations
+                                </div>
+                                <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-200">
+                                  {analysis.actionableRecommendations.map((s, idx) => (
+                                    <li key={idx}>{s}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
