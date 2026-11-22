@@ -21,12 +21,14 @@ app.use(
         return;
       }
       // Allow Vercel preview & production deployments for testing
-      if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+      if (origin.startsWith("https://") && origin.endsWith(".vercel.app")) {
         callback(null, true);
         return;
       }
       callback(new Error(`CORS origin not allowed: ${origin}`));
     },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );

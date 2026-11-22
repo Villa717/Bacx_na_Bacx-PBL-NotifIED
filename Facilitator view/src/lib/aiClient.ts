@@ -1,10 +1,54 @@
 /// <reference types="vite/client" />
 
-export const AI_BACKEND_URL = (
-  import.meta.env.VITE_AI_BACKEND_URL || "http://localhost:4000"
-).replace(/\/$/, "");
+const ENV_BACKEND_URL = (import.meta.env.VITE_AI_BACKEND_URL || "").trim().replace(/\/$/, "");
+const BACKEND_URL_OVERRIDE_KEY = "campussync_ai_backend_url";
 
 export const DEFAULT_STORAGE_BUCKET = "proposal-documents";
+
+function isLocalhostHost(): boolean {
+  if (typeof window === "undefined") return true;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+export function getAiBackendUrl(): string {
+  if (ENV_BACKEND_URL) return ENV_BACKEND_URL;
+  try {
+    const saved = localStorage.getItem(BACKEND_URL_OVERRIDE_KEY)?.trim().replace(/\/$/, "");
+    if (saved) return saved;
+  } catch {
+    // Ignore storage access errors
+  }
+  return isLocalhostHost() ? "http://localhost:4000" : "";
+}
+
+export function setAiBackendUrlOverride(url: string): string {
+  const cleaned = url.trim().replace(/\/$/, "");
+  try {
+    if (cleaned) {
+      localStorage.setItem(BACKEND_URL_OVERRIDE_KEY, cleaned);
+    } else {
+      localStorage.removeItem(BACKEND_URL_OVERRIDE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return getAiBackendUrl();
+}
+
+export function isAiBackendConfigured(): boolean {
+  return Boolean(getAiBackendUrl());
+}
+
+function requireAiBackendUrl(): string {
+  const baseUrl = getAiBackendUrl();
+  if (!baseUrl) {
+    throw new Error(
+      "AI Backend URL is not configured for this deployed site. Deploy the backend/ folder (with GEMINI_API_KEY) and set VITE_AI_BACKEND_URL in Vercel, or paste your backend URL below."
+    );
+  }
+  return baseUrl;
+}
 
 // ============================================================================
 // Shared AI Types (matching backend/src/schemas/aiSchemas.ts)
@@ -125,9 +169,34 @@ export interface SurveyDiagnosticsInput {
   responses: SurveyResponseEntry[];
 }
 
+export interface StoredEventDocumentMeta {
+  index: number;
+  filename: string;
+  mimeType: string;
+  size: number;
+  downloadPath: string;
+  downloadUrl: string;
+}
+
+export interface EventDocumentsPayload {
+  eventId: number;
+  documents: StoredEventDocumentMeta[];
+  preScreenResult: PreScreenResult | null;
+}
+
 // ============================================================================
 // HTTP Helpers
 // ============================================================================
+
+async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error(
+      `Could not reach the AI backend at ${getAiBackendUrl()}. Verify that backend/ is deployed and running, CORS allows this domain, and VITE_AI_BACKEND_URL is set correctly.`
+    );
+  }
+}
 
 async function handleApiResponse<T>(res: Response): Promise<T> {
   let payload: any = null;
@@ -137,12 +206,74 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
     // Non-JSON response
   }
   if (!res.ok) {
+    if (res.status === 413) {
+      throw new Error(
+        "Uploaded file exceeds the serverless payload limit (4.5 MB on Vercel). Please compress the PDF or upload a smaller scan."
+      );
+    }
     throw new Error(
       payload?.error ||
-        `AI backend error (${res.status}). Ensure the backend server is running at ${AI_BACKEND_URL}.`
+        `AI backend error (${res.status}) at ${getAiBackendUrl()}. Check that GEMINI_API_KEY is set on the backend.`
     );
   }
   return payload as T;
+}
+
+export async function uploadEventDocuments(
+  eventId: number,
+  files: File[],
+  preScreenResult?: PreScreenResult | null
+): Promise<EventDocumentsPayload | null> {
+  const baseUrl = getAiBackendUrl();
+  if (!baseUrl || (files.length === 0 && !preScreenResult)) return null;
+
+  try {
+    const formData = new FormData();
+    files.forEach((f) => formData.append("documents", f));
+    if (preScreenResult) {
+      formData.append("preScreenResult", JSON.stringify(preScreenResult));
+    }
+
+    const res = await fetch(`${baseUrl}/api/ai/events/${eventId}/documents`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      eventId: data.eventId,
+      documents: (data.documents || []).map((d: any) => ({
+        ...d,
+        downloadUrl: `${baseUrl}${d.downloadPath}`,
+      })),
+      preScreenResult: data.preScreenResult ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchEventDocuments(
+  eventId: number
+): Promise<EventDocumentsPayload | null> {
+  const baseUrl = getAiBackendUrl();
+  if (!baseUrl) return null;
+
+  try {
+    const res = await fetch(`${baseUrl}/api/ai/events/${eventId}/documents`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      eventId: data.eventId,
+      documents: (data.documents || []).map((d: any) => ({
+        ...d,
+        downloadUrl: `${baseUrl}${d.downloadPath}`,
+      })),
+      preScreenResult: data.preScreenResult ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function runDocumentPreScreen(params: {
@@ -151,6 +282,7 @@ export async function runDocumentPreScreen(params: {
   metadata: ProposalFormMetadata;
   eventId?: number;
 }): Promise<PreScreenResult> {
+  const baseUrl = requireAiBackendUrl();
   const { files = [], storageDocuments = [], metadata, eventId } = params;
 
   if (files.length > 0) {
@@ -166,14 +298,14 @@ export async function runDocumentPreScreen(params: {
       formData.append("eventId", String(eventId));
     }
 
-    const res = await fetch(`${AI_BACKEND_URL}/api/ai/prescreen`, {
+    const res = await safeFetch(`${baseUrl}/api/ai/prescreen`, {
       method: "POST",
       body: formData,
     });
     return handleApiResponse<PreScreenResult>(res);
   }
 
-  const res = await fetch(`${AI_BACKEND_URL}/api/ai/prescreen`, {
+  const res = await safeFetch(`${baseUrl}/api/ai/prescreen`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -188,7 +320,8 @@ export async function runDocumentPreScreen(params: {
 export async function runProposalTriage(
   proposal: TriageProposalInput
 ): Promise<TriageResult> {
-  const res = await fetch(`${AI_BACKEND_URL}/api/ai/triage`, {
+  const baseUrl = requireAiBackendUrl();
+  const res = await safeFetch(`${baseUrl}/api/ai/triage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(proposal),
@@ -199,7 +332,8 @@ export async function runProposalTriage(
 export async function runBatchProposalTriage(
   proposals: Array<TriageProposalInput & { eventId: number }>
 ): Promise<BatchTriageItem[]> {
-  const res = await fetch(`${AI_BACKEND_URL}/api/ai/triage`, {
+  const baseUrl = requireAiBackendUrl();
+  const res = await safeFetch(`${baseUrl}/api/ai/triage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ proposals }),
@@ -211,7 +345,8 @@ export async function runBatchProposalTriage(
 export async function generateAiSurvey(
   input: SurveyGeneratorInput
 ): Promise<GeneratedSurveyResult> {
-  const res = await fetch(`${AI_BACKEND_URL}/api/ai/surveys/generate`, {
+  const baseUrl = requireAiBackendUrl();
+  const res = await safeFetch(`${baseUrl}/api/ai/surveys/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -222,7 +357,8 @@ export async function generateAiSurvey(
 export async function analyzeAiSurveyFeedback(
   input: SurveyDiagnosticsInput
 ): Promise<SurveyDiagnosticsResult> {
-  const res = await fetch(`${AI_BACKEND_URL}/api/ai/surveys/analyze`, {
+  const baseUrl = requireAiBackendUrl();
+  const res = await safeFetch(`${baseUrl}/api/ai/surveys/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),

@@ -30,7 +30,10 @@ import { supabase } from "../../lib/supabase";
 import {
   aiLocalCache,
   DEFAULT_STORAGE_BUCKET,
+  getAiBackendUrl,
   runDocumentPreScreen,
+  setAiBackendUrlOverride,
+  uploadEventDocuments,
   type PreScreenResult,
 } from "../../lib/aiClient";
 
@@ -106,6 +109,7 @@ export function FacilitatorInterface({
   const [waiverFile, setWaiverFile] = useState<File | null>(null);
   const [preScreening, setPreScreening] = useState(false);
   const [preScreenError, setPreScreenError] = useState("");
+  const [backendUrlInput, setBackendUrlInput] = useState(() => getAiBackendUrl());
   const [preScreenResult, setPreScreenResult] = useState<PreScreenResult | null>(null);
   const [cachedPreScreens, setCachedPreScreens] = useState<Record<string, PreScreenResult>>(() =>
     aiLocalCache.getPreScreens()
@@ -333,9 +337,16 @@ export function FacilitatorInterface({
     if (insertError) {
       alert(`Submission error: ${insertError.message}`);
     } else {
-      if (aiResult && insertedEventId) {
-        aiLocalCache.savePreScreen(insertedEventId, aiResult);
-        setCachedPreScreens(aiLocalCache.getPreScreens());
+      if (insertedEventId) {
+        const filesToRelay: File[] = [];
+        if (apfFile && isSupportedMultimodalFile(apfFile)) filesToRelay.push(apfFile);
+        if (waiverFile && isSupportedMultimodalFile(waiverFile)) filesToRelay.push(waiverFile);
+        await uploadEventDocuments(insertedEventId, filesToRelay, aiResult);
+
+        if (aiResult) {
+          aiLocalCache.savePreScreen(insertedEventId, aiResult);
+          setCachedPreScreens(aiLocalCache.getPreScreens());
+        }
       }
       alert("Proposal submitted successfully to CampusSync!");
       setTitle("");
@@ -887,9 +898,30 @@ export function FacilitatorInterface({
                   </button>
 
                   {preScreenError && (
-                    <div className="p-3 bg-red-950/30 border border-red-500/40 text-red-300 text-xs flex items-start gap-2">
-                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-red-400" />
-                      <span>{preScreenError}</span>
+                    <div className="p-3 bg-red-950/30 border border-red-500/40 text-red-300 text-xs space-y-2">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-red-400" />
+                        <span>{preScreenError}</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="url"
+                          value={backendUrlInput}
+                          onChange={(e) => setBackendUrlInput(e.target.value)}
+                          placeholder="https://your-ai-backend.vercel.app"
+                          className="flex-1 p-1.5 bg-[#0B132B] border border-white/15 text-[11px] text-white focus:border-[#FDB813] outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAiBackendUrlOverride(backendUrlInput);
+                            setPreScreenError("");
+                          }}
+                          className="px-2.5 py-1.5 bg-[#FDB813] hover:bg-[#e0a20f] text-black font-bold text-[10px] uppercase cursor-pointer"
+                        >
+                          Save URL
+                        </button>
+                      </div>
                     </div>
                   )}
 

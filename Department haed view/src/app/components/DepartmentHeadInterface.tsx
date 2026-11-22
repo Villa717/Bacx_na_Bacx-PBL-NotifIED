@@ -10,6 +10,7 @@ import {
   FileCheck2,
   Loader2,
   Menu,
+  Paperclip,
   PenTool,
   Plus,
   RefreshCw,
@@ -32,10 +33,14 @@ import { supabase } from "../../lib/supabase";
 import {
   aiLocalCache,
   analyzeAiSurveyFeedback,
+  fetchEventDocuments,
+  getAiBackendUrl,
   runBatchProposalTriage,
   runDocumentPreScreen,
   runProposalTriage,
+  setAiBackendUrlOverride,
   type PreScreenResult,
+  type StoredEventDocumentMeta,
   type SurveyDiagnosticsResult,
   type SurveyResponseEntry,
   type TriageResult,
@@ -1033,19 +1038,83 @@ function ProposalApprovalsView({
     }
   };
 
+  const [attachedFilesByEvent, setAttachedFilesByEvent] = useState<
+    Record<number, { file: File; previewUrl: string }>
+  >({});
+  const [remoteDocsByEvent, setRemoteDocsByEvent] = useState<
+    Record<number, StoredEventDocumentMeta[]>
+  >({});
+  const [backendUrlInput, setBackendUrlInput] = useState(() => getAiBackendUrl());
+
+  const selectedAttachedLocal = selected
+    ? attachedFilesByEvent[selected.event_id]
+    : undefined;
+  const selectedRemoteDocs = selected
+    ? remoteDocsByEvent[selected.event_id] || []
+    : [];
+
+  useEffect(() => {
+    const evId = selected?.event_id;
+    if (!evId) return;
+    let cancelled = false;
+    setPreScreenError("");
+    void fetchEventDocuments(evId).then((payload) => {
+      if (cancelled || !payload) return;
+      if (payload.documents.length > 0) {
+        setRemoteDocsByEvent((prev) => ({ ...prev, [evId]: payload.documents }));
+      }
+      if (payload.preScreenResult) {
+        aiLocalCache.savePreScreen(evId, payload.preScreenResult);
+        setPreScreenMap((prev) => ({
+          ...prev,
+          [String(evId)]: payload.preScreenResult as PreScreenResult,
+        }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.event_id]);
+
+  const handleAttachLocalDoc = (ev: EventRecord, file: File) => {
+    setAttachedFilesByEvent((prev) => {
+      const old = prev[ev.event_id];
+      if (old?.previewUrl) URL.revokeObjectURL(old.previewUrl);
+      return {
+        ...prev,
+        [ev.event_id]: { file, previewUrl: URL.createObjectURL(file) },
+      };
+    });
+    setPreScreenError("");
+  };
+
+  const handleRemoveLocalDoc = (eventId: number) => {
+    setAttachedFilesByEvent((prev) => {
+      const next = { ...prev };
+      if (next[eventId]?.previewUrl) URL.revokeObjectURL(next[eventId].previewUrl);
+      delete next[eventId];
+      return next;
+    });
+  };
+
   const handleInspectDocument = async (ev: EventRecord, file?: File) => {
+    const fileToSend = file ?? attachedFilesByEvent[ev.event_id]?.file;
+    if (file) {
+      handleAttachLocalDoc(ev, file);
+    }
+
     setPreScreenLoading(true);
     setPreScreenError("");
     try {
       const storageDocuments =
-        !file && ev.document_path
+        !fileToSend && ev.document_path
           ? [
               { bucket: ev.document_bucket, path: ev.document_path },
               ...(ev.waiver_path ? [{ bucket: ev.document_bucket, path: ev.waiver_path }] : []),
             ]
           : [];
       const result = await runDocumentPreScreen({
-        files: file ? [file] : [],
+        files: fileToSend ? [fileToSend] : [],
         storageDocuments,
         eventId: ev.event_id,
         metadata: {
@@ -1064,6 +1133,11 @@ function ProposalApprovalsView({
       aiLocalCache.savePreScreen(ev.event_id, result);
       setPreScreenMap((prev) => ({ ...prev, [String(ev.event_id)]: result }));
       await persistOptionalFields(ev.event_id, { ai_prescreen_result: result });
+
+      const remotePayload = await fetchEventDocuments(ev.event_id);
+      if (remotePayload && remotePayload.documents.length > 0) {
+        setRemoteDocsByEvent((prev) => ({ ...prev, [ev.event_id]: remotePayload.documents }));
+      }
     } catch (err) {
       setPreScreenError(err instanceof Error ? err.message : "AI document inspection failed.");
     } finally {
@@ -1347,8 +1421,10 @@ function ProposalApprovalsView({
                   <FileCheck2 className="size-4 text-[#24408E]" aria-hidden="true" />
                   AI Document & Signature Pre-Screening
                 </h3>
-                <div className="flex items-center gap-2">
-                  {selected.document_path && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {(selected.document_path ||
+                    selectedRemoteDocs.length > 0 ||
+                    selectedAttachedLocal) && (
                     <button
                       type="button"
                       disabled={preScreenLoading}
@@ -1360,12 +1436,12 @@ function ProposalApprovalsView({
                       ) : (
                         <Sparkles className="size-3.5 text-[#24408E]" aria-hidden="true" />
                       )}
-                      Inspect Stored PDF
+                      {preScreenLoading ? "Inspecting…" : "Run AI Check on Attached PDF"}
                     </button>
                   )}
                   <label className={`${btnOutline} py-1 text-xs`}>
                     <Upload className="size-3.5 text-[#24408E]" aria-hidden="true" />
-                    {preScreenLoading ? "Inspecting…" : "Inspect PDF / Image"}
+                    {selectedAttachedLocal ? "Replace PDF / Image" : "Attach & Inspect PDF / Image"}
                     <input
                       type="file"
                       accept=".pdf,image/png,image/jpeg"
@@ -1381,10 +1457,112 @@ function ProposalApprovalsView({
                 </div>
               </div>
 
+              {(selectedAttachedLocal ||
+                selectedRemoteDocs.length > 0 ||
+                selected.document_path) && (
+                <div className="rounded-md border border-[#DDE2EA] bg-white p-3 space-y-2 text-xs">
+                  <p className="font-semibold text-[#5B6678] uppercase tracking-wide text-[11px]">
+                    Attached proposal document(s)
+                  </p>
+                  {selectedAttachedLocal && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#F7F8FA] px-2.5 py-2 border border-[#DDE2EA]">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                        <span className="font-medium text-[#18212F] truncate">
+                          {selectedAttachedLocal.file.name}
+                        </span>
+                        <span className="text-[#5B6678] shrink-0">
+                          ({Math.max(1, Math.round(selectedAttachedLocal.file.size / 1024))} KB)
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <a
+                          href={selectedAttachedLocal.previewUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#24408E] underline flex items-center gap-1"
+                        >
+                          View <ExternalLink className="size-3" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLocalDoc(selected.event_id)}
+                          aria-label="Remove local attachment"
+                          className="rounded p-1 text-[#B3261E] hover:bg-[#FBEDEC] cursor-pointer"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {selectedRemoteDocs.map((doc) => (
+                    <div
+                      key={`${doc.index}-${doc.filename}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#EAEFFA]/50 px-2.5 py-2 border border-[#DDE2EA]"
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                        <span className="font-medium text-[#18212F] truncate">{doc.filename}</span>
+                        <span className="text-[#5B6678] shrink-0">
+                          ({Math.max(1, Math.round(doc.size / 1024))} KB · Sent by Facilitator)
+                        </span>
+                      </span>
+                      <a
+                        href={doc.downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#24408E] underline flex items-center gap-1 shrink-0"
+                      >
+                        View PDF <ExternalLink className="size-3" />
+                      </a>
+                    </div>
+                  ))}
+                  {selected.document_path && selectedRemoteDocs.length === 0 && (
+                    <div className="flex items-center justify-between gap-2 rounded bg-[#F7F8FA] px-2.5 py-2 border border-[#DDE2EA]">
+                      <span className="truncate font-mono text-[11px] text-[#18212F]">
+                        {selected.document_path}
+                      </span>
+                      <span className="text-[#1F7A4D] font-medium shrink-0">Supabase Storage</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {preScreenError && (
-                <p role="alert" className="rounded-md bg-[#FBEDEC] px-3 py-2 text-sm text-[#B3261E]">
-                  {preScreenError}
-                </p>
+                <div
+                  role="alert"
+                  className="rounded-md bg-[#FBEDEC] border border-[#E2B3AF] px-3 py-2.5 text-sm text-[#B3261E] space-y-2"
+                >
+                  <p>{preScreenError}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="url"
+                      value={backendUrlInput}
+                      onChange={(e) => setBackendUrlInput(e.target.value)}
+                      placeholder="https://your-ai-backend.vercel.app"
+                      className={`${input} flex-1 min-w-[200px] py-1.5 text-xs`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAiBackendUrlOverride(backendUrlInput);
+                        setPreScreenError("");
+                      }}
+                      className={`${btnPrimary} py-1.5 text-xs`}
+                    >
+                      Save AI Backend URL
+                    </button>
+                    {selectedAttachedLocal && (
+                      <button
+                        type="button"
+                        onClick={() => handleInspectDocument(selected)}
+                        className={`${btnOutline} py-1.5 text-xs`}
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
 
               {aiPreScreen ? (

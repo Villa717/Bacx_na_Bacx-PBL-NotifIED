@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
-import { persistOptionalEventFields } from "../config/supabase.js";
+import { env } from "../config/env.js";
+import { getSupabaseAdmin, persistOptionalEventFields } from "../config/supabase.js";
+import { type PreScreenResult } from "../schemas/aiSchemas.js";
 import {
   ALLOWED_MIME_TYPES,
   analyzeSurveyFeedback,
@@ -15,6 +17,15 @@ import {
 } from "../services/aiService.js";
 
 const router = Router();
+
+interface StoredEventAttachments {
+  documents: DocumentInput[];
+  preScreenResult?: PreScreenResult;
+  updatedAt: string;
+}
+
+// Lightweight in-memory attachment relay for cross-portal PDF testing when Supabase Storage bucket isn't provisioned yet
+const eventAttachmentStore = new Map<number, StoredEventAttachments>();
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -56,10 +67,152 @@ function parseOptionalNumber(value: unknown): number | undefined {
 }
 
 /**
+ * POST /api/ai/events/:eventId/documents
+ * Stores Facilitator-uploaded PDF/image attachments (and optional PreScreenResult) so Admin & Dept Head portals can view and inspect them.
+ */
+router.post(
+  "/events/:eventId/documents",
+  upload.any(),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const eventId = parseOptionalNumber(req.params.eventId);
+      if (!eventId) {
+        res.status(400).json({ error: "Valid numeric eventId is required." });
+        return;
+      }
+
+      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+      const docs: DocumentInput[] = uploadedFiles.map((file) => ({
+        filename: file.originalname,
+        mimeType: file.mimetype === "image/jpg" ? "image/jpeg" : file.mimetype,
+        buffer: file.buffer,
+      }));
+
+      let preScreenResult: PreScreenResult | undefined;
+      if (req.body?.preScreenResult) {
+        try {
+          preScreenResult =
+            typeof req.body.preScreenResult === "string"
+              ? (JSON.parse(req.body.preScreenResult) as PreScreenResult)
+              : (req.body.preScreenResult as PreScreenResult);
+        } catch {
+          // Ignore malformed JSON
+        }
+      }
+
+      const existing = eventAttachmentStore.get(eventId);
+      const mergedDocs = docs.length > 0 ? docs : existing?.documents || [];
+      const mergedPreScreen = preScreenResult ?? existing?.preScreenResult;
+
+      eventAttachmentStore.set(eventId, {
+        documents: mergedDocs,
+        preScreenResult: mergedPreScreen,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Optionally mirror to Supabase Storage if server credentials are configured
+      const supabase = getSupabaseAdmin();
+      const uploadedPaths: string[] = [];
+      if (supabase && docs.length > 0) {
+        for (const doc of docs) {
+          const safeName = doc.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `events/${eventId}/${Date.now()}_${safeName}`;
+          const { error } = await supabase.storage
+            .from(env.supabaseStorageBucket)
+            .upload(path, doc.buffer, { contentType: doc.mimeType, upsert: true });
+          if (!error) uploadedPaths.push(path);
+        }
+        if (uploadedPaths.length > 0) {
+          await persistOptionalEventFields(eventId, {
+            document_bucket: env.supabaseStorageBucket,
+            document_path: uploadedPaths[0],
+            ...(uploadedPaths[1] ? { waiver_path: uploadedPaths[1] } : {}),
+            ...(mergedPreScreen ? { ai_prescreen_result: mergedPreScreen } : {}),
+          });
+        }
+      }
+
+      res.json({
+        eventId,
+        documents: mergedDocs.map((d, index) => ({
+          index,
+          filename: d.filename,
+          mimeType: d.mimeType,
+          size: d.buffer.length,
+          downloadPath: `/api/ai/events/${eventId}/documents/${index}`,
+        })),
+        preScreenResult: mergedPreScreen ?? null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to store event documents";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+/**
+ * GET /api/ai/events/:eventId/documents
+ * Lists stored PDF/image attachments and any cached PreScreenResult for a proposal.
+ */
+router.get("/events/:eventId/documents", (req: Request, res: Response): void => {
+  const eventId = parseOptionalNumber(req.params.eventId);
+  if (!eventId) {
+    res.status(400).json({ error: "Valid numeric eventId is required." });
+    return;
+  }
+
+  const record = eventAttachmentStore.get(eventId);
+  if (!record) {
+    res.json({ eventId, documents: [], preScreenResult: null });
+    return;
+  }
+
+  res.json({
+    eventId,
+    documents: record.documents.map((d, index) => ({
+      index,
+      filename: d.filename,
+      mimeType: d.mimeType,
+      size: d.buffer.length,
+      downloadPath: `/api/ai/events/${eventId}/documents/${index}`,
+    })),
+    preScreenResult: record.preScreenResult ?? null,
+    updatedAt: record.updatedAt,
+  });
+});
+
+/**
+ * GET /api/ai/events/:eventId/documents/:index
+ * Streams a stored PDF/image inline so reviewers can view it in a new tab.
+ */
+router.get("/events/:eventId/documents/:index", (req: Request, res: Response): void => {
+  const eventId = parseOptionalNumber(req.params.eventId);
+  const index = parseOptionalNumber(req.params.index);
+  if (!eventId || index === undefined) {
+    res.status(400).json({ error: "Valid eventId and document index are required." });
+    return;
+  }
+
+  const record = eventAttachmentStore.get(eventId);
+  const doc = record?.documents[index];
+  if (!doc) {
+    res.status(404).json({ error: "Attached document not found." });
+    return;
+  }
+
+  res.setHeader("Content-Type", doc.mimeType);
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="${doc.filename.replace(/"/g, "")}"`
+  );
+  res.send(doc.buffer);
+});
+
+/**
  * POST /api/ai/prescreen
  * Supports:
  *  - multipart/form-data: `documents` (1..5 files) or `document`/`apfFile`/`waiverFile` + JSON `metadata` or individual form fields
- *  - application/json: `{ bucket, path }` or `{ documents: [{ bucket, path }] }` + `metadata`
+ *  - application/json: `{ bucket, path }` or `{ documents: [{ bucket, path }] }` or `{ eventId }` (uses stored event docs) + `metadata`
  */
 router.post(
   "/prescreen",
@@ -110,6 +263,16 @@ router.post(
         documents.push(downloaded);
       }
 
+      const eventId = parseOptionalNumber(body.eventId ?? body.event_id);
+
+      // 3. Fallback to backend attachment store if eventId already has uploaded documents
+      if (documents.length === 0 && eventId) {
+        const stored = eventAttachmentStore.get(eventId);
+        if (stored && stored.documents.length > 0) {
+          documents.push(...stored.documents);
+        }
+      }
+
       if (documents.length === 0) {
         res.status(400).json({
           error:
@@ -138,7 +301,14 @@ router.post(
 
       const result = await preScreenDocuments(documents, metadata);
 
-      const eventId = parseOptionalNumber(body.eventId ?? body.event_id);
+      if (eventId) {
+        eventAttachmentStore.set(eventId, {
+          documents,
+          preScreenResult: result,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
       const persisted = await persistOptionalEventFields(eventId, {
         ai_prescreen_result: result,
       });
