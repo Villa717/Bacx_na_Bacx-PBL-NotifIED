@@ -20,6 +20,11 @@ app.use(
         callback(null, true);
         return;
       }
+      // Allow Vercel preview & production deployments for testing
+      if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+        callback(null, true);
+        return;
+      }
       callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     credentials: true,
@@ -50,13 +55,17 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: message });
 });
 
-app.listen(env.port, () => {
-  console.log(
-    `[CampusSync AI Backend] Listening on http://localhost:${env.port} (model: ${GEMINI_MODEL})`
-  );
-  if (!env.geminiApiKey) {
-    console.warn(
-      "[CampusSync AI Backend] Warning: GEMINI_API_KEY is not set. Copy backend/.env.example to backend/.env and add your key."
+if (!process.env.VERCEL) {
+  app.listen(env.port, () => {
+    console.log(
+      `[CampusSync AI Backend] Listening on http://localhost:${env.port} (model: ${GEMINI_MODEL})`
     );
-  }
-});
+    if (!env.geminiApiKey) {
+      console.warn(
+        "[CampusSync AI Backend] Warning: GEMINI_API_KEY is not set. Copy backend/.env.example to backend/.env and add your key."
+      );
+    }
+  });
+}
+
+export default app;
