@@ -36,6 +36,22 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+app.get("/", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    service: "campussync-ai-backend",
+    model: GEMINI_MODEL,
+    geminiConfigured: Boolean(env.geminiApiKey),
+    endpoints: [
+      "GET /api/health",
+      "POST /api/ai/prescreen",
+      "POST /api/ai/triage",
+      "POST /api/ai/surveys/generate",
+      "POST /api/ai/surveys/analyze",
+    ],
+  });
+});
+
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
