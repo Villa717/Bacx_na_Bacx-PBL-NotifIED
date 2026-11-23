@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 const ENV_BACKEND_URL = (import.meta.env.VITE_AI_BACKEND_URL || "").trim().replace(/\/$/, "");
+const DEFAULT_DEPLOYED_BACKEND_URL = "https://bacxnabacx-pbl-notified-backend.vercel.app";
 const BACKEND_URL_OVERRIDE_KEY = "campussync_ai_backend_url";
 
 export const DEFAULT_STORAGE_BUCKET = "proposal-documents";
@@ -28,7 +29,7 @@ export function getAiBackendUrl(): string {
     // Ignore storage access errors
   }
   if (ENV_BACKEND_URL && !isPlaceholderUrl(ENV_BACKEND_URL)) return ENV_BACKEND_URL;
-  return isLocalhostHost() ? "http://localhost:4000" : "";
+  return isLocalhostHost() ? "http://localhost:4000" : DEFAULT_DEPLOYED_BACKEND_URL;
 }
 
 export function setAiBackendUrlOverride(url: string): string {

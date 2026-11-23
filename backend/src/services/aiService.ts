@@ -1,6 +1,6 @@
 import { type Part } from "@google/genai";
 import { env } from "../config/env.js";
-import { GEMINI_MODEL, getGeminiClient } from "../config/gemini.js";
+import { generateContentWithModelFallback } from "../config/gemini.js";
 import { getSupabaseAdmin } from "../config/supabase.js";
 import {
   type BatchTriageItem,
@@ -167,8 +167,6 @@ export async function preScreenDocuments(
     throw new Error("At least one PDF or scanned image document is required for pre-screening.");
   }
 
-  const ai = getGeminiClient();
-
   const fileParts: Part[] = documents.map((doc) => {
     const mimeType = normalizeMimeType(doc.mimeType, doc.filename);
     return {
@@ -222,8 +220,7 @@ Evaluation Instructions:
 5. reviewerSummary:
    - Write a concise, objective 2-3 sentence summary for Admin Coordinators and Department Heads.`;
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+  const { response } = await generateContentWithModelFallback({
     contents: [
       {
         role: "user",
@@ -233,7 +230,6 @@ Evaluation Instructions:
     config: {
       responseMimeType: "application/json",
       responseSchema: preScreenResponseSchema,
-      temperature: 0.1,
     },
   });
 
@@ -258,7 +254,6 @@ Evaluation Instructions:
 // ============================================================================
 
 export async function triageProposal(proposal: TriageProposalInput): Promise<TriageResult> {
-  const ai = getGeminiClient();
   const daysUntilEvent = computeDaysUntilEvent(proposal.eventDate, proposal.daysUntilEvent);
 
   const payload = {
@@ -288,13 +283,11 @@ Triage Policy:
 - riskFlags: concise, specific logistical, scheduling, venue, budget, or external guest risks.
 - rationale: crisp 1-2 sentence explanation justifying the assigned tier.`;
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+  const { response } = await generateContentWithModelFallback({
     contents: promptText,
     config: {
       responseMimeType: "application/json",
       responseSchema: triageResponseSchema,
-      temperature: 0.1,
     },
   });
 
@@ -312,7 +305,6 @@ export async function triageProposalBatch(
 ): Promise<BatchTriageItem[]> {
   if (!proposals.length) return [];
 
-  const ai = getGeminiClient();
   const normalized = proposals.map((p) => ({
     eventId: p.eventId,
     title: p.title,
@@ -341,13 +333,11 @@ Triage Policy:
 - riskFlags: specific logistical, safety, compliance, or scheduling risks.
 - rationale: concise 1-2 sentence justification per event.`;
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+  const { response } = await generateContentWithModelFallback({
     contents: promptText,
     config: {
       responseMimeType: "application/json",
       responseSchema: batchTriageResponseSchema,
-      temperature: 0.1,
     },
   });
 
@@ -372,7 +362,6 @@ Triage Policy:
 export async function generatePostEventSurvey(
   input: SurveyGeneratorInput
 ): Promise<GeneratedSurveyResult> {
-  const ai = getGeminiClient();
   const count = clamp(input.questionCount ?? 6, 4, 10);
 
   const promptText = `You are CampusSync's Academic Event Evaluation Designer.
@@ -400,13 +389,11 @@ Requirements:
 - Use clean sequential IDs like "q1", "q2", ...
 - Keep wording concise, formal, and student-friendly.`;
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+  const { response } = await generateContentWithModelFallback({
     contents: promptText,
     config: {
       responseMimeType: "application/json",
       responseSchema: surveyGeneratorResponseSchema,
-      temperature: 0.4,
     },
   });
 
@@ -439,8 +426,6 @@ export async function analyzeSurveyFeedback(
     throw new Error("At least one survey response is required to run feedback diagnostics.");
   }
 
-  const ai = getGeminiClient();
-
   const promptText = `You are CampusSync's Institutional Event Quality & Sentiment Analyst.
 Analyze the post-event student survey responses below and synthesize an executive diagnostic report for Admin Coordinators and Department Heads.
 
@@ -464,13 +449,11 @@ Analysis Instructions:
 - Identify concrete keyStrengths, areasForImprovement, and actionableRecommendations (specific to operations, pacing, venue/tech, and academic value).
 - Write executiveSummary as a formal, concise paragraph (3-4 sentences) ready for a Department Head / SAO governance report.`;
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+  const { response } = await generateContentWithModelFallback({
     contents: promptText,
     config: {
       responseMimeType: "application/json",
       responseSchema: surveyDiagnosticsResponseSchema,
-      temperature: 0.2,
     },
   });
 
