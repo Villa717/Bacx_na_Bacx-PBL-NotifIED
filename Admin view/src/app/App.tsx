@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Calendar,
   Building2,
@@ -24,10 +24,7 @@ import {
   PanelLeftOpen,
   Loader2,
   AlertTriangle,
-  XCircle,
   PenTool,
-  FileCheck2,
-  Upload,
   ChevronDown,
   ChevronUp,
   Plus,
@@ -35,7 +32,6 @@ import {
   Brain,
   Save,
   Paperclip,
-  X,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import {
@@ -62,6 +58,8 @@ import {
   carriedAttachmentToBlobUrl,
   carriedAttachmentToFile,
   decodeProposalDescription,
+  encodeProposalDescriptionWithAttachments,
+  isFreshProcessingState,
 } from "../lib/proposalAttachments";
 import adminBg from "../assets/admin-bg.jpeg";
 
@@ -94,6 +92,7 @@ export interface EventRecord {
   document_bucket?: string;
   document_path?: string;
   waiver_path?: string;
+  ai_audit_status?: string;
   ai_prescreen_result?: PreScreenResult;
   ai_triage_result?: TriageResult;
   ai_survey_draft?: GeneratedSurveyResult;
@@ -655,12 +654,10 @@ export function CoordinatorInterface({
     triagedEvents[0] ||
     null;
 
-  const [attachedFilesByEvent, setAttachedFilesByEvent] = useState<
-    Record<number, { file: File; previewUrl: string }>
-  >({});
   const [remoteDocsByEvent, setRemoteDocsByEvent] = useState<
     Record<number, StoredEventDocumentMeta[]>
   >({});
+  const autoAuditTriggeredRef = useRef<Set<string>>(new Set());
 
   const decodedSelected = decodeProposalDescription(selectedEvent?.description);
   const selectedCarriedFiles = decodedSelected.files;
@@ -668,61 +665,19 @@ export function CoordinatorInterface({
   const selectedAuditStatus = selectedPreScreen ? deriveAuditStatus(selectedPreScreen) : null;
   const selectedDefects = selectedPreScreen ? extractDefectItems(selectedPreScreen) : [];
   const selectedTriage = selectedEvent ? getEventTriage(selectedEvent) : undefined;
-  const selectedAttachedLocal = selectedEvent
-    ? attachedFilesByEvent[selectedEvent.event_id]
-    : undefined;
   const selectedRemoteDocs = selectedEvent
     ? remoteDocsByEvent[selectedEvent.event_id] || []
     : [];
+  const selectedIsProcessing = Boolean(
+    selectedEvent &&
+      !selectedPreScreen &&
+      (isFreshProcessingState(selectedEvent.ai_audit_status, selectedEvent.created_at) ||
+        isFreshProcessingState(decodedSelected.aiStatus, decodedSelected.aiUpdatedAt))
+  );
 
   const handleOpenRevisionWithAiDefects = (report: PreScreenResult) => {
     setRevisionFeedback(formatDefectsForRevisionNote(report));
     setShowRevisionModal(true);
-  };
-
-  // Load any Facilitator-attached PDFs & pre-screen result from backend relay when an event is selected
-  useEffect(() => {
-    const evId = selectedEvent?.event_id;
-    if (!evId) return;
-    let cancelled = false;
-    setPreScreenError("");
-    void fetchEventDocuments(evId).then((payload) => {
-      if (cancelled || !payload) return;
-      if (payload.documents.length > 0) {
-        setRemoteDocsByEvent((prev) => ({ ...prev, [evId]: payload.documents }));
-      }
-      if (payload.preScreenResult) {
-        aiLocalCache.savePreScreen(evId, payload.preScreenResult);
-        setPreScreenMap((prev) => ({
-          ...prev,
-          [String(evId)]: payload.preScreenResult as PreScreenResult,
-        }));
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedEvent?.event_id]);
-
-  const handleAttachLocalFile = (ev: EventRecord, file: File) => {
-    setAttachedFilesByEvent((prev) => {
-      const old = prev[ev.event_id];
-      if (old?.previewUrl) URL.revokeObjectURL(old.previewUrl);
-      return {
-        ...prev,
-        [ev.event_id]: { file, previewUrl: URL.createObjectURL(file) },
-      };
-    });
-    setPreScreenError("");
-  };
-
-  const handleRemoveLocalFile = (eventId: number) => {
-    setAttachedFilesByEvent((prev) => {
-      const next = { ...prev };
-      if (next[eventId]?.previewUrl) URL.revokeObjectURL(next[eventId].previewUrl);
-      delete next[eventId];
-      return next;
-    });
   };
 
   const persistOptionalEventColumns = async (
@@ -742,35 +697,95 @@ export function CoordinatorInterface({
     }
   };
 
-  // ── AI Handler 1: On-Demand Multimodal Document Inspection (Carried Facilitator PDF, Upload, Relay, or Storage) ──
-  const handleInspectProposalDocument = async (ev: EventRecord, file?: File) => {
-    if (file) {
-      handleAttachLocalFile(ev, file);
+  const persistAuditResultToSupabase = async (
+    ev: EventRecord,
+    result: PreScreenResult
+  ) => {
+    const decoded = decodeProposalDescription(ev.description);
+    const status = deriveAuditStatus(result);
+    const updatedDescription = encodeProposalDescriptionWithAttachments(decoded.cleanDescription, {
+      files: decoded.files,
+      preScreen: result,
+      aiStatus: status,
+      aiUpdatedAt: new Date().toISOString(),
+    });
+
+    const { error: extErr } = await supabase
+      .from("events")
+      .update({
+        description: updatedDescription,
+        ai_audit_status: status,
+        ai_prescreen_result: result,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("event_id", ev.event_id);
+
+    if (extErr) {
+      await supabase
+        .from("events")
+        .update({
+          description: updatedDescription,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("event_id", ev.event_id);
     }
 
+    setEvents((prev) =>
+      prev.map((item) =>
+        item.event_id === ev.event_id
+          ? {
+              ...item,
+              description: updatedDescription,
+              ai_audit_status: status,
+              ai_prescreen_result: result,
+            }
+          : item
+      )
+    );
+  };
+
+  // ── Automated Multimodal AI Audit Runner (triggered automatically when no saved audit exists) ──
+  const runAutomaticProposalAudit = async (
+    ev: EventRecord,
+    remoteDocsOverride?: StoredEventDocumentMeta[]
+  ) => {
     const decoded = decodeProposalDescription(ev.description);
     const carriedFileObjects = decoded.files
       .map((att) => carriedAttachmentToFile(att))
       .filter((f): f is File => Boolean(f));
+    const documentUrls = decoded.files
+      .filter((att) => Boolean(att.storageUrl))
+      .map((att) => ({
+        url: att.storageUrl as string,
+        filename: att.name,
+        mimeType: att.mimeType,
+      }));
+    const storageDocuments =
+      carriedFileObjects.length === 0 && documentUrls.length === 0 && ev.document_path
+        ? [
+            { bucket: ev.document_bucket, path: ev.document_path },
+            ...(ev.waiver_path ? [{ bucket: ev.document_bucket, path: ev.waiver_path }] : []),
+          ]
+        : [];
+    const availableRemoteDocs = remoteDocsOverride ?? remoteDocsByEvent[ev.event_id] ?? [];
 
-    const localOverride = file ?? attachedFilesByEvent[ev.event_id]?.file;
-    const filesToSend = localOverride ? [localOverride] : carriedFileObjects;
+    if (
+      carriedFileObjects.length === 0 &&
+      documentUrls.length === 0 &&
+      storageDocuments.length === 0 &&
+      availableRemoteDocs.length === 0
+    ) {
+      return;
+    }
 
     setPreScreenLoading(true);
     setPreScreenError("");
 
     try {
-      const storageDocuments =
-        filesToSend.length === 0 && ev.document_path
-          ? [
-              { bucket: ev.document_bucket, path: ev.document_path },
-              ...(ev.waiver_path ? [{ bucket: ev.document_bucket, path: ev.waiver_path }] : []),
-            ]
-          : [];
-
       const result = await runDocumentPreScreen({
-        files: filesToSend,
+        files: carriedFileObjects,
         storageDocuments,
+        documentUrls: carriedFileObjects.length === 0 ? documentUrls : [],
         eventId: ev.event_id,
         metadata: {
           title: ev.title,
@@ -788,19 +803,81 @@ export function CoordinatorInterface({
 
       aiLocalCache.savePreScreen(ev.event_id, result);
       setPreScreenMap((prev) => ({ ...prev, [String(ev.event_id)]: result }));
-      await persistOptionalEventColumns(ev.event_id, { ai_prescreen_result: result });
-
-      // Refresh remote attached document list if backend stored it
-      const remotePayload = await fetchEventDocuments(ev.event_id);
-      if (remotePayload && remotePayload.documents.length > 0) {
-        setRemoteDocsByEvent((prev) => ({ ...prev, [ev.event_id]: remotePayload.documents }));
-      }
+      await persistAuditResultToSupabase(ev, result);
     } catch (err) {
-      setPreScreenError(err instanceof Error ? err.message : "Failed to run AI document inspection.");
+      console.error("[CampusSync AI] Automatic Admin proposal audit failed:", err);
+      setPreScreenError(
+        err instanceof Error ? err.message : "Automated AI document verification failed."
+      );
     } finally {
       setPreScreenLoading(false);
     }
   };
+
+  // Poll Supabase while a newly submitted proposal is still in PROCESSING state
+  useEffect(() => {
+    if (!selectedIsProcessing || !selectedEvent?.event_id) return;
+    const interval = window.setInterval(() => {
+      void fetchQueue();
+    }, 3000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [selectedIsProcessing, selectedEvent?.event_id]);
+
+  // On opening any proposal: hydrate relay docs/results, and automatically run AI audit once if missing
+  useEffect(() => {
+    const ev = selectedEvent;
+    if (!ev) return;
+    let cancelled = false;
+    setPreScreenError("");
+
+    const decoded = decodeProposalDescription(ev.description);
+    const existingSaved = getEventPreScreen(ev);
+    const isProcessingNow =
+      !existingSaved &&
+      (isFreshProcessingState(ev.ai_audit_status, ev.created_at) ||
+        isFreshProcessingState(decoded.aiStatus, decoded.aiUpdatedAt));
+
+    void (async () => {
+      const payload = await fetchEventDocuments(ev.event_id);
+      if (cancelled) return;
+
+      const remoteDocs = payload?.documents || [];
+      if (remoteDocs.length > 0) {
+        setRemoteDocsByEvent((prev) => ({ ...prev, [ev.event_id]: remoteDocs }));
+      }
+      if (payload?.preScreenResult) {
+        aiLocalCache.savePreScreen(ev.event_id, payload.preScreenResult);
+        setPreScreenMap((prev) => ({
+          ...prev,
+          [String(ev.event_id)]: payload.preScreenResult as PreScreenResult,
+        }));
+        return;
+      }
+
+      if (existingSaved || isProcessingNow) {
+        return;
+      }
+
+      const hasDocs =
+        decoded.files.length > 0 ||
+        remoteDocs.length > 0 ||
+        Boolean(ev.document_path);
+
+      if (!hasDocs) return;
+
+      const guardKey = `${ev.event_id}:${ev.description?.length || 0}:${remoteDocs.length}`;
+      if (autoAuditTriggeredRef.current.has(guardKey)) return;
+      autoAuditTriggeredRef.current.add(guardKey);
+
+      await runAutomaticProposalAudit(ev, remoteDocs);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEvent?.event_id, selectedEvent?.description, selectedIsProcessing]);
 
   // ── AI Handler 2: Dynamic Priority Queue Triage (Batch & Single) ──
   const handleRunBatchTriage = async () => {
@@ -1736,7 +1813,7 @@ export function CoordinatorInterface({
                     </div>
                   </div>
 
-                  {/* Jira-Style AI Executive Summary & Automated Document Audit Panel */}
+                  {/* 100% Automated Jira-Style AI Executive Summary & Document Verification */}
                   <div className="rounded-lg bg-white border border-[#C5D3F3] shadow-xs p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDE2EA] pb-3">
                       <div className="flex items-center gap-2">
@@ -1744,59 +1821,32 @@ export function CoordinatorInterface({
                         <h3 className="text-xs font-bold text-[#18212F] uppercase tracking-wider">
                           AI Executive Summary &amp; Document Verification
                         </h3>
-                        {selectedPreScreen && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#EAEFFA] text-[#24408E] border border-[#C5D3F3]">
-                            Auto-analyzed
-                          </span>
-                        )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        {(selectedEvent.document_path ||
-                          selectedRemoteDocs.length > 0 ||
-                          selectedCarriedFiles.length > 0 ||
-                          selectedAttachedLocal) && (
-                          <button
-                            type="button"
-                            disabled={preScreenLoading}
-                            onClick={() => handleInspectProposalDocument(selectedEvent)}
-                            className="px-2.5 py-1 rounded-md bg-white hover:bg-[#EAEFFA] border border-[#C9D0DB] text-[11px] font-medium text-[#24408E] flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
+                      <div>
+                        {preScreenLoading || selectedIsProcessing ? (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[#EAEFFA] text-[#24408E] border border-[#C5D3F3]">
+                            <Loader2 className="size-3 animate-spin" />
+                            Auto-Checking...
+                          </span>
+                        ) : selectedPreScreen ? (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                              selectedAuditStatus === "COMPLETE"
+                                ? "bg-[#E6F3EC] text-[#1F7A4D] border-[#B6DFC8]"
+                                : "bg-[#FBEDEC] text-[#B3261E] border-[#E2B3AF]"
+                            }`}
                           >
-                            {preScreenLoading ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : (
-                              <RefreshCw className="size-3" />
-                            )}
-                            {preScreenLoading
-                              ? "Running Audit..."
-                              : selectedPreScreen
-                              ? "Re-run AI Audit"
-                              : "Run AI Audit"}
-                          </button>
-                        )}
-                        <label className="px-2.5 py-1 rounded-md bg-white hover:bg-[#F2F4F7] border border-[#C9D0DB] text-[11px] font-medium text-[#5B6678] hover:text-[#18212F] flex items-center gap-1.5 cursor-pointer">
-                          <Upload className="size-3 text-[#24408E]" />
-                          {selectedAttachedLocal ? "Replace PDF" : "Attach PDF"}
-                          <input
-                            type="file"
-                            accept=".pdf,image/png,image/jpeg"
-                            className="hidden"
-                            disabled={preScreenLoading}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                void handleInspectProposalDocument(selectedEvent, file);
-                              }
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
+                            {selectedAuditStatus === "COMPLETE"
+                              ? "✓ Pre-Checked: Complete"
+                              : "! Pre-Checked: Defects Found"}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
-                    {/* Attached Proposal Documents Bar */}
-                    {(selectedAttachedLocal ||
-                      selectedCarriedFiles.length > 0 ||
+                    {/* Read-Only Submitted Documents List (Uploaded by Facilitator) */}
+                    {(selectedCarriedFiles.length > 0 ||
                       selectedRemoteDocs.length > 0 ||
                       selectedEvent.document_path) && (
                       <div className="p-3 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] space-y-2 text-xs">
@@ -1818,7 +1868,7 @@ export function CoordinatorInterface({
                             </span>
                             {att.tooLargeForInline && !att.storageUrl ? (
                               <span className="text-[10px] text-[#8A5A00] shrink-0">
-                                Over 3 MB — use Attach PDF above to inspect
+                                Exceeds inline preview limit
                               </span>
                             ) : (
                               <button
@@ -1834,38 +1884,6 @@ export function CoordinatorInterface({
                             )}
                           </div>
                         ))}
-
-                        {selectedAttachedLocal && (
-                          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded bg-white border border-[#B6DFC8]">
-                            <span className="flex items-center gap-2 text-[#18212F] truncate min-w-0">
-                              <Paperclip className="size-3.5 text-[#1F7A4D] shrink-0" />
-                              <span className="font-medium truncate">
-                                {selectedAttachedLocal.file.name}
-                              </span>
-                              <span className="text-[10px] font-mono text-[#5B6678] shrink-0">
-                                ({Math.max(1, Math.round(selectedAttachedLocal.file.size / 1024))} KB · Attached in Admin)
-                              </span>
-                            </span>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <a
-                                href={selectedAttachedLocal.previewUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-2 py-1 rounded bg-[#EAEFFA] hover:bg-[#DCE6FA] text-[10px] font-semibold text-[#24408E] flex items-center gap-1"
-                              >
-                                View <ExternalLink className="size-3" />
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveLocalFile(selectedEvent.event_id)}
-                                title="Remove attachment"
-                                className="p-1 text-[#5B6678] hover:text-[#B3261E] cursor-pointer"
-                              >
-                                <X className="size-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        )}
 
                         {selectedCarriedFiles.length === 0 &&
                           selectedRemoteDocs.map((doc) => (
@@ -1909,41 +1927,56 @@ export function CoordinatorInterface({
                       </div>
                     )}
 
-                    {/* Clean User-Facing Error Notice (No Raw JSON or Debug URL Inputs) */}
-                    {preScreenError && (
-                      <div className="p-3 rounded-md bg-[#FBEDEC] border border-[#E2B3AF] text-xs text-[#B3261E] flex items-center justify-between gap-3">
-                        <div className="flex items-start gap-2">
-                          <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#B3261E]" />
-                          <span>{preScreenError}</span>
-                        </div>
-                        {(selectedAttachedLocal ||
-                          selectedCarriedFiles.length > 0 ||
-                          selectedRemoteDocs.length > 0 ||
-                          selectedEvent.document_path) && (
-                          <button
-                            type="button"
-                            onClick={() => handleInspectProposalDocument(selectedEvent)}
-                            className="px-2.5 py-1 rounded bg-white hover:bg-[#EAEFFA] border border-[#E2B3AF] text-[#B3261E] font-semibold text-[11px] shrink-0 cursor-pointer"
-                          >
-                            Retry
-                          </button>
-                        )}
+                    {/* Clean Status Error Banner if Automated Audit Encounters an Issue */}
+                    {preScreenError && !preScreenLoading && !selectedPreScreen && (
+                      <div className="p-3.5 rounded-md bg-[#FBEDEC] border border-[#E2B3AF] text-xs text-[#B3261E] flex items-start gap-2">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#B3261E]" />
+                        <span>{preScreenError}</span>
                       </div>
                     )}
 
-                    {preScreenLoading ? (
-                      <div className="p-6 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] flex flex-col items-center justify-center text-center gap-2">
+                    {preScreenLoading || selectedIsProcessing ? (
+                      <div className="p-6 rounded-md bg-[#F7F9FF] border border-[#C5D3F3] flex flex-col items-center justify-center text-center gap-2">
                         <Loader2 className="size-5 animate-spin text-[#24408E]" />
                         <p className="text-xs font-semibold text-[#18212F]">
-                          Analyzing proposal details and attached documents...
+                          AI Multimodal Engine is reviewing attached files and verifying signatures...
                         </p>
                         <p className="text-[11px] text-[#5B6678]">
-                          Generating executive summary, checking signatures, and verifying consistency.
+                          Generating the executive event summary and checking for missing files, unsigned lines, or inconsistencies automatically.
                         </p>
                       </div>
                     ) : selectedPreScreen ? (
                       <div className="space-y-4 text-xs">
-                        {/* 1. Readiness Verdict Banner (COMPLETE vs DEFECTIVE) */}
+                        {/* 1. Jira-Style AI Executive Event Summary */}
+                        <div className="p-4 rounded-md bg-[#F7F9FF] border border-[#C5D3F3] space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-[#24408E] flex items-center gap-1.5">
+                              <Sparkles className="size-3.5" /> AI Event Summary
+                            </span>
+                            <span className="text-[10px] text-[#5B6678]">
+                              Synthesized from proposal &amp; attached files
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-[#18212F]">
+                            {selectedPreScreen.eventSummary?.headline || selectedEvent.title}
+                          </h4>
+                          <p className="text-xs text-[#374151] leading-relaxed">
+                            {selectedPreScreen.eventSummary?.overview ||
+                              selectedPreScreen.reviewerSummary}
+                          </p>
+                          {(selectedPreScreen.eventSummary?.keyHighlights?.length || 0) > 0 && (
+                            <ul className="space-y-1 pt-1 border-t border-[#DDE6FA] text-xs text-[#18212F]">
+                              {selectedPreScreen.eventSummary!.keyHighlights.map((point, idx) => (
+                                <li key={idx} className="flex items-start gap-2">
+                                  <span className="text-[#24408E] font-bold mt-0.5">•</span>
+                                  <span className="leading-relaxed">{point}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        {/* 2. Readiness Verdict Banner (COMPLETE vs DEFECTIVE) */}
                         {selectedAuditStatus === "COMPLETE" ? (
                           <div className="p-4 rounded-md bg-[#E6F3EC] border border-[#B6DFC8] space-y-1.5">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2017,35 +2050,6 @@ export function CoordinatorInterface({
                           </div>
                         )}
 
-                        {/* 2. Jira-Style AI Executive Event Summary */}
-                        <div className="p-4 rounded-md bg-[#F7F9FF] border border-[#C5D3F3] space-y-2.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-[#24408E] flex items-center gap-1.5">
-                              <Sparkles className="size-3.5" /> AI Event Summary
-                            </span>
-                            <span className="text-[10px] text-[#5B6678]">
-                              Synthesized from proposal &amp; attached files
-                            </span>
-                          </div>
-                          <h4 className="text-sm font-bold text-[#18212F]">
-                            {selectedPreScreen.eventSummary?.headline || selectedEvent.title}
-                          </h4>
-                          <p className="text-xs text-[#374151] leading-relaxed">
-                            {selectedPreScreen.eventSummary?.overview ||
-                              selectedPreScreen.reviewerSummary}
-                          </p>
-                          {(selectedPreScreen.eventSummary?.keyHighlights?.length || 0) > 0 && (
-                            <ul className="space-y-1 pt-1 border-t border-[#DDE6FA] text-xs text-[#18212F]">
-                              {selectedPreScreen.eventSummary!.keyHighlights.map((point, idx) => (
-                                <li key={idx} className="flex items-start gap-2">
-                                  <span className="text-[#24408E] font-bold mt-0.5">•</span>
-                                  <span className="leading-relaxed">{point}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-
                         {/* 3. Visual Signature Verification */}
                         <div className="p-3.5 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] space-y-2">
                           <div className="flex items-center justify-between">
@@ -2117,22 +2121,19 @@ export function CoordinatorInterface({
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <div className="p-4 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] text-xs text-[#5B6678] flex flex-wrap items-center justify-between gap-3">
+                    ) : !preScreenError ? (
+                      <div className="p-4 rounded-md bg-[#FFF4DC] border border-[#E5C98B] text-xs text-[#8A5A00] flex items-start gap-2.5">
+                        <AlertTriangle className="size-4 shrink-0 mt-0.5 text-[#8A5A00]" />
                         <div className="space-y-0.5">
-                          <p className="text-[#18212F] font-semibold">
-                            No automated AI audit recorded for this proposal yet.
+                          <p className="font-semibold text-[#6B4600]">
+                            No proposal documents were attached to this submission.
                           </p>
-                          <p>
-                            {selectedCarriedFiles.length > 0 ||
-                            selectedRemoteDocs.length > 0 ||
-                            selectedEvent.document_path
-                              ? "Click \"Run AI Audit\" above to generate the executive summary and verify signatures."
-                              : "New proposals submitted by Facilitators are analyzed automatically. For older records without files, use \"Attach PDF\" above."}
+                          <p className="text-[#8A5A00]">
+                            Signed Activity Proposal Form (APF) and supporting attachments are missing. Request revisions from the Facilitator to upload the required documents.
                           </p>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
                   <div>

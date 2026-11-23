@@ -257,16 +257,19 @@ export interface EventDocumentsPayload {
 // HTTP Helpers
 // ============================================================================
 
-function sanitizeErrorMessage(raw?: string, fallback?: string): string {
-  const defaultMsg = fallback || "The AI service is temporarily unavailable. Please retry in a moment.";
+function sanitizeErrorMessage(raw?: string, status?: number): string {
+  const defaultMsg =
+    status !== undefined
+      ? `Automated AI analysis failed (HTTP ${status}).`
+      : "The AI service is temporarily unavailable. Please retry in a moment.";
   if (!raw) return defaultMsg;
   const trimmed = raw.trim();
   if (trimmed.startsWith("{") || trimmed.includes("\"error\":{")) {
     if (trimmed.includes("503") || trimmed.includes("UNAVAILABLE") || trimmed.includes("high demand")) {
-      return "The AI service is currently busy. Please retry in a moment.";
+      return "The Gemini AI service is temporarily experiencing high demand. Please refresh in a moment.";
     }
-    if (trimmed.includes("404") || trimmed.includes("NOT_FOUND")) {
-      return "The AI model endpoint is updating. Please retry shortly.";
+    if (trimmed.includes("404") || trimmed.includes("NOT_FOUND") || trimmed.includes("no longer available")) {
+      return "The deployed AI backend is still serving an older Gemini model build (404). Promote the latest backend deployment to Production in Vercel.";
     }
     return defaultMsg;
   }
@@ -276,30 +279,33 @@ function sanitizeErrorMessage(raw?: string, fallback?: string): string {
 async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
-  } catch {
-    throw new Error("Unable to connect to the AI service right now. Please try again in a moment.");
+  } catch (err) {
+    console.error("[CampusSync AI] Network fetch error:", { url, err });
+    throw new Error("Unable to reach the AI backend service. Check network connectivity or backend status.");
   }
 }
 
-async function handleApiResponse<T>(res: Response): Promise<T> {
+async function handleApiResponse<T>(url: string, res: Response): Promise<T> {
   let payload: any = null;
+  let rawText = "";
   try {
-    payload = await res.json();
+    rawText = await res.text();
+    payload = rawText ? JSON.parse(rawText) : null;
   } catch {
     // Non-JSON response
   }
   if (!res.ok) {
+    console.error("[CampusSync AI] Endpoint error:", {
+      url,
+      status: res.status,
+      error: payload?.error ?? rawText,
+    });
     if (res.status === 413) {
       throw new Error(
-        "The uploaded file exceeds the 4.5 MB limit. Please compress the PDF or upload a smaller scan."
+        "The uploaded file exceeds the 4.5 MB serverless payload limit. Please upload a smaller PDF or scan."
       );
     }
-    throw new Error(
-      sanitizeErrorMessage(
-        payload?.error,
-        `AI analysis could not be completed right now (HTTP ${res.status}). Please retry shortly.`
-      )
-    );
+    throw new Error(sanitizeErrorMessage(payload?.error || rawText, res.status));
   }
   return payload as T;
 }
@@ -333,7 +339,8 @@ export async function uploadEventDocuments(
       })),
       preScreenResult: data.preScreenResult ?? null,
     };
-  } catch {
+  } catch (err) {
+    console.error("[CampusSync AI] Document relay upload failed:", err);
     return null;
   }
 }
@@ -356,7 +363,8 @@ export async function fetchEventDocuments(
       })),
       preScreenResult: data.preScreenResult ?? null,
     };
-  } catch {
+  } catch (err) {
+    console.error("[CampusSync AI] Fetch event documents failed:", err);
     return null;
   }
 }
@@ -364,11 +372,13 @@ export async function fetchEventDocuments(
 export async function runDocumentPreScreen(params: {
   files?: File[];
   storageDocuments?: Array<{ bucket?: string; path: string }>;
+  documentUrls?: Array<{ url: string; filename?: string; mimeType?: string }>;
   metadata: ProposalFormMetadata;
   eventId?: number;
 }): Promise<PreScreenResult> {
   const baseUrl = requireAiBackendUrl();
-  const { files = [], storageDocuments = [], metadata, eventId } = params;
+  const endpoint = `${baseUrl}/api/ai/prescreen`;
+  const { files = [], storageDocuments = [], documentUrls = [], metadata, eventId } = params;
 
   if (files.length > 0) {
     const formData = new FormData();
@@ -379,51 +389,57 @@ export async function runDocumentPreScreen(params: {
     if (storageDocuments.length > 0) {
       formData.append("storageDocuments", JSON.stringify(storageDocuments));
     }
+    if (documentUrls.length > 0) {
+      formData.append("documentUrls", JSON.stringify(documentUrls));
+    }
     if (eventId !== undefined) {
       formData.append("eventId", String(eventId));
     }
 
-    const res = await safeFetch(`${baseUrl}/api/ai/prescreen`, {
+    const res = await safeFetch(endpoint, {
       method: "POST",
       body: formData,
     });
-    return handleApiResponse<PreScreenResult>(res);
+    return handleApiResponse<PreScreenResult>(endpoint, res);
   }
 
-  const res = await safeFetch(`${baseUrl}/api/ai/prescreen`, {
+  const res = await safeFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       documents: storageDocuments,
+      documentUrls,
       metadata,
       eventId,
     }),
   });
-  return handleApiResponse<PreScreenResult>(res);
+  return handleApiResponse<PreScreenResult>(endpoint, res);
 }
 
 export async function runProposalTriage(
   proposal: TriageProposalInput
 ): Promise<TriageResult> {
   const baseUrl = requireAiBackendUrl();
-  const res = await safeFetch(`${baseUrl}/api/ai/triage`, {
+  const endpoint = `${baseUrl}/api/ai/triage`;
+  const res = await safeFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(proposal),
   });
-  return handleApiResponse<TriageResult>(res);
+  return handleApiResponse<TriageResult>(endpoint, res);
 }
 
 export async function runBatchProposalTriage(
   proposals: Array<TriageProposalInput & { eventId: number }>
 ): Promise<BatchTriageItem[]> {
   const baseUrl = requireAiBackendUrl();
-  const res = await safeFetch(`${baseUrl}/api/ai/triage`, {
+  const endpoint = `${baseUrl}/api/ai/triage`;
+  const res = await safeFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ proposals }),
   });
-  const data = await handleApiResponse<{ results: BatchTriageItem[] }>(res);
+  const data = await handleApiResponse<{ results: BatchTriageItem[] }>(endpoint, res);
   return data.results || [];
 }
 
@@ -431,24 +447,26 @@ export async function generateAiSurvey(
   input: SurveyGeneratorInput
 ): Promise<GeneratedSurveyResult> {
   const baseUrl = requireAiBackendUrl();
-  const res = await safeFetch(`${baseUrl}/api/ai/surveys/generate`, {
+  const endpoint = `${baseUrl}/api/ai/surveys/generate`;
+  const res = await safeFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return handleApiResponse<GeneratedSurveyResult>(res);
+  return handleApiResponse<GeneratedSurveyResult>(endpoint, res);
 }
 
 export async function analyzeAiSurveyFeedback(
   input: SurveyDiagnosticsInput
 ): Promise<SurveyDiagnosticsResult> {
   const baseUrl = requireAiBackendUrl();
-  const res = await safeFetch(`${baseUrl}/api/ai/surveys/analyze`, {
+  const endpoint = `${baseUrl}/api/ai/surveys/analyze`;
+  const res = await safeFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return handleApiResponse<SurveyDiagnosticsResult>(res);
+  return handleApiResponse<SurveyDiagnosticsResult>(endpoint, res);
 }
 
 // ============================================================================

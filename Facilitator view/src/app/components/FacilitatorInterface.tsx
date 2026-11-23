@@ -28,6 +28,7 @@ import { supabase } from "../../lib/supabase";
 import {
   aiLocalCache,
   DEFAULT_STORAGE_BUCKET,
+  deriveAuditStatus,
   runDocumentPreScreen,
   uploadEventDocuments,
   type PreScreenResult,
@@ -274,22 +275,26 @@ export function FacilitatorInterface({
     eventId: number,
     cleanDesc: string,
     carriedFiles: CarriedAttachmentFile[],
-    auditResult: PreScreenResult
+    auditResult: PreScreenResult | null,
+    lifecycleStatus: "COMPLETE" | "DEFECTIVE" | "FAILED"
   ) => {
-    aiLocalCache.savePreScreen(eventId, auditResult);
+    if (auditResult) {
+      aiLocalCache.savePreScreen(eventId, auditResult);
+    }
 
-    // Re-encode description with the completed AI audit report so Admin & Dept Head portals
-    // receive it seamlessly across domains even without extra Supabase JSONB columns
     const updatedDescription = encodeProposalDescriptionWithAttachments(cleanDesc, {
       files: carriedFiles,
       preScreen: auditResult,
+      aiStatus: lifecycleStatus,
+      aiUpdatedAt: new Date().toISOString(),
     });
 
     const { error: extErr } = await supabase
       .from("events")
       .update({
         description: updatedDescription,
-        ai_prescreen_result: auditResult,
+        ai_audit_status: lifecycleStatus,
+        ...(auditResult ? { ai_prescreen_result: auditResult } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("event_id", eventId);
@@ -364,9 +369,12 @@ export function FacilitatorInterface({
     }
 
     const cleanDescription = description.trim();
+    const initialAiStatus = filesToAnalyze.length > 0 || carriedFiles.some((f) => f.storageUrl) ? "PROCESSING" : null;
     const encodedDescription = encodeProposalDescriptionWithAttachments(cleanDescription, {
       files: carriedFiles,
       preScreen: null,
+      aiStatus: initialAiStatus,
+      aiUpdatedAt: new Date().toISOString(),
     });
 
     const basePayload = {
@@ -387,11 +395,12 @@ export function FacilitatorInterface({
       proposed_attendees: expectedAttendees ? Number(expectedAttendees) : null,
       estimated_budget: estimatedBudget ? Number(estimatedBudget) : null,
       has_external_guests: hasExternalGuests,
+      ...(initialAiStatus ? { ai_audit_status: initialAiStatus } : {}),
       ...(documentPath ? { document_bucket: DEFAULT_STORAGE_BUCKET, document_path: documentPath } : {}),
       ...(waiverPath ? { waiver_path: waiverPath } : {}),
     };
 
-    // 3. Save proposal record to Supabase (insert new or update revised proposal)
+    // 3. Save proposal record to Supabase immediately with PROCESSING status
     let targetEventId: number | undefined;
     let saveError: { message: string } | null = null;
 
@@ -451,7 +460,11 @@ export function FacilitatorInterface({
 
     // 4. Automatically trigger backend Multimodal AI audit so the Admin Coordinator receives
     //    the Jira-style executive summary & COMPLETE/DEFECTIVE verification report automatically
-    if (targetEventId && filesToAnalyze.length > 0) {
+    const documentUrls = carriedFiles
+      .filter((f) => Boolean(f.storageUrl))
+      .map((f) => ({ url: f.storageUrl as string, filename: f.name, mimeType: f.mimeType }));
+
+    if (targetEventId && (filesToAnalyze.length > 0 || documentUrls.length > 0)) {
       const metadataForAudit = {
         title: title.trim() || undefined,
         organization: organization.trim() || undefined,
@@ -466,16 +479,32 @@ export function FacilitatorInterface({
       };
 
       try {
-        await uploadEventDocuments(targetEventId, filesToAnalyze, null);
+        if (filesToAnalyze.length > 0) {
+          await uploadEventDocuments(targetEventId, filesToAnalyze, null);
+        }
         const auditResult = await runDocumentPreScreen({
           files: filesToAnalyze,
+          documentUrls: filesToAnalyze.length === 0 ? documentUrls : [],
           eventId: targetEventId,
           metadata: metadataForAudit,
         });
-        await persistAutomatedAuditResult(targetEventId, cleanDescription, carriedFiles, auditResult);
+        const status = deriveAuditStatus(auditResult);
+        await persistAutomatedAuditResult(
+          targetEventId,
+          cleanDescription,
+          carriedFiles,
+          auditResult,
+          status
+        );
       } catch (err) {
-        // Never interrupt or expose technical AI errors to the Facilitator; Admin can re-run audit if needed
-        console.warn("Background AI audit deferred:", err);
+        console.error("[CampusSync AI] Automated audit on submit failed; Admin view will retry automatically:", err);
+        await persistAutomatedAuditResult(
+          targetEventId,
+          cleanDescription,
+          carriedFiles,
+          null,
+          "FAILED"
+        );
       }
     }
 

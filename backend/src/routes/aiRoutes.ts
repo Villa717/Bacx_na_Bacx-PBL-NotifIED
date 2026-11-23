@@ -6,6 +6,7 @@ import { type PreScreenResult } from "../schemas/aiSchemas.js";
 import {
   ALLOWED_MIME_TYPES,
   analyzeSurveyFeedback,
+  downloadFromDocumentUrl,
   downloadFromSupabaseStorage,
   generatePostEventSurvey,
   preScreenDocuments,
@@ -13,6 +14,7 @@ import {
   triageProposalBatch,
   type DocumentInput,
   type ProposalFormMetadata,
+  type PublicDocumentUrlRef,
   type StorageDocumentRef,
 } from "../services/aiService.js";
 
@@ -263,6 +265,32 @@ router.post(
         documents.push(downloaded);
       }
 
+      // 2b. Direct Supabase Storage public URLs (if passed in body.documentUrls)
+      const urlRefs: PublicDocumentUrlRef[] = [];
+      if (body.documentUrls) {
+        const parsedUrls =
+          typeof body.documentUrls === "string"
+            ? JSON.parse(body.documentUrls)
+            : body.documentUrls;
+        if (Array.isArray(parsedUrls)) {
+          for (const item of parsedUrls) {
+            if (typeof item === "string" && item.trim()) {
+              urlRefs.push({ url: item.trim() });
+            } else if (item?.url && typeof item.url === "string") {
+              urlRefs.push({
+                url: item.url.trim(),
+                filename: item.filename,
+                mimeType: item.mimeType,
+              });
+            }
+          }
+        }
+      }
+      for (const urlRef of urlRefs) {
+        const downloaded = await downloadFromDocumentUrl(urlRef);
+        documents.push(downloaded);
+      }
+
       const eventId = parseOptionalNumber(body.eventId ?? body.event_id);
 
       // 3. Fallback to backend attachment store if eventId already has uploaded documents
@@ -276,7 +304,7 @@ router.post(
       if (documents.length === 0) {
         res.status(400).json({
           error:
-            "No documents provided. Upload at least one PDF/PNG/JPEG file or specify a Supabase Storage bucket + path.",
+            "No documents provided. Upload at least one PDF/PNG/JPEG file or specify a Supabase Storage bucket + path or URL.",
         });
         return;
       }
@@ -310,6 +338,7 @@ router.post(
       }
 
       const persisted = await persistOptionalEventFields(eventId, {
+        ai_audit_status: result.auditStatus,
         ai_prescreen_result: result,
       });
 

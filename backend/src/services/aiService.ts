@@ -100,6 +100,62 @@ function normalizeMimeType(mimeType: string | undefined, filename: string): stri
   );
 }
 
+export interface PublicDocumentUrlRef {
+  url: string;
+  filename?: string;
+  mimeType?: string;
+}
+
+const MAX_REMOTE_DOC_BYTES = 15 * 1024 * 1024;
+
+export async function downloadFromDocumentUrl(
+  ref: PublicDocumentUrlRef
+): Promise<DocumentInput> {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(ref.url);
+  } catch {
+    throw new Error(`Invalid document URL: "${ref.url}"`);
+  }
+
+  const configuredHost = env.supabaseUrl ? new URL(env.supabaseUrl).hostname : "";
+  const isAllowedHost =
+    parsedUrl.protocol === "https:" &&
+    (parsedUrl.hostname.endsWith(".supabase.co") ||
+      (configuredHost && parsedUrl.hostname === configuredHost));
+
+  if (!isAllowedHost) {
+    throw new Error("Document URL must be a valid HTTPS Supabase Storage URL.");
+  }
+
+  const res = await fetch(parsedUrl.toString());
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch attached document from storage URL (HTTP ${res.status}).`
+    );
+  }
+
+  const contentLength = Number(res.headers.get("content-length") || 0);
+  if (contentLength > MAX_REMOTE_DOC_BYTES) {
+    throw new Error("Attached document exceeds the 15 MB maximum supported size.");
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  if (arrayBuffer.byteLength > MAX_REMOTE_DOC_BYTES) {
+    throw new Error("Attached document exceeds the 15 MB maximum supported size.");
+  }
+
+  const buffer = Buffer.from(arrayBuffer);
+  const pathPart = parsedUrl.pathname.split("/").pop() || "document.pdf";
+  const filename = ref.filename || decodeURIComponent(pathPart);
+  const mimeType = normalizeMimeType(
+    ref.mimeType || res.headers.get("content-type") || undefined,
+    filename
+  );
+
+  return { filename, mimeType, buffer };
+}
+
 export async function downloadFromSupabaseStorage(
   ref: StorageDocumentRef
 ): Promise<DocumentInput> {

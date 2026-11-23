@@ -2,7 +2,7 @@
   "name": "campussync-ai-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Multimodal AI integration service (Gemini 2.5 Flash) for CampusSync event clearance",
+  "description": "Multimodal AI integration service (Gemini 3.8 Flash) for CampusSync event clearance",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

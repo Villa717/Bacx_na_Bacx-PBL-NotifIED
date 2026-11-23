@@ -2,6 +2,7 @@
 -- The frontend and backend gracefully fall back to local state if these columns or bucket are not yet present.
 
 ALTER TABLE public.events
+  ADD COLUMN IF NOT EXISTS ai_audit_status text,
   ADD COLUMN IF NOT EXISTS ai_prescreen_result jsonb,
   ADD COLUMN IF NOT EXISTS ai_triage_result jsonb,
   ADD COLUMN IF NOT EXISTS ai_survey_draft jsonb,

@@ -6,18 +6,10 @@ const rawCorsOrigins =
   process.env.CORS_ORIGINS ||
   "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:3000";
 
-const RETIRED_MODELS = new Set([
-  "gemini-2.5-flash",
-  "models/gemini-2.5-flash",
-  "gemini-2.5-pro",
-  "models/gemini-2.5-pro",
-  "gemini-2.0-flash",
-  "models/gemini-2.0-flash",
-]);
-
 function resolvePrimaryGeminiModel(): string {
   const configured = (process.env.GEMINI_MODEL || "").trim().replace(/^models\//, "");
-  if (!configured || RETIRED_MODELS.has(configured) || RETIRED_MODELS.has(`models/${configured}`)) {
+  // Automatically upgrade any unset or retired pre-3.x Gemini model string to gemini-3.8-flash
+  if (!configured || /^gemini-(1|2)\./i.test(configured)) {
     return "gemini-3.8-flash";
   }
   return configured;
