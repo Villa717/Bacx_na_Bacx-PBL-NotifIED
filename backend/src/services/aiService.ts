@@ -162,9 +162,9 @@ function computeDaysUntilEvent(eventDate?: string, explicitDays?: number): numbe
 export async function preScreenDocuments(
   documents: DocumentInput[],
   metadata: ProposalFormMetadata
-): Promise<PreScreenResult> {
+): Promise<PreScreenResult & { modelUsed?: string }> {
   if (!documents.length) {
-    throw new Error("At least one PDF or scanned image document is required for pre-screening.");
+    throw new Error("At least one PDF or scanned image document is required for multimodal AI audit.");
   }
 
   const fileParts: Part[] = documents.map((doc) => {
@@ -195,32 +195,38 @@ export async function preScreenDocuments(
     2
   );
 
-  const promptText = `You are CampusSync's Multimodal Academic Event Clearance Auditor.
-Visually and textually inspect the attached event proposal document(s) (Activity Proposal Form / APF, endorsement sheets, budget tables, and/or participant waivers) and cross-check them against the submitted form metadata.
+  const promptText = `You are CampusSync's Multimodal Academic Event Clearance Auditor & Executive Summarizer for Admin Coordinators.
+Inspect ALL attached event proposal document(s) (Activity Proposal Form / APF, endorsement sheets, budget tables, participant waivers, and supporting files) visually and textually, and cross-check every detail against the submitted proposal form metadata.
 
 Submitted Proposal Form Metadata:
 ${metadataSummary}
 
 Evaluation Instructions:
-1. Visual Signature & Stamp Inspection:
-   - Visually inspect every signature line and endorsement block in the document(s).
+1. Jira-Style Executive Event Summary (eventSummary):
+   - headline: A crisp 1-line title summarizing the event and organizing group.
+   - overview: A clear, scannable 2-3 sentence summary synthesizing both the form and attached PDFs/images so the Admin Coordinator understands the event immediately without reading every page first.
+   - keyHighlights: 3 to 6 concise bullet points covering: (a) Event purpose/objectives, (b) Date & schedule, (c) Venue & format, (d) Target audience / expected attendees / external guests, and (e) Budget or key logistics extracted from the attached files.
+2. Visual Signature & Stamp Inspection (signatureCheck):
+   - Visually inspect every signature line and endorsement block in all attached PDFs/images.
    - Distinguish actual handwritten/digital signatures or official stamps from blank lines or typed names with no signature mark.
-   - Report detected signatories/roles in signatureCheck.detectedSignatories, and list blank/unsigned/missing lines in signatureCheck.missingSignatureLines.
-   - Note scan quality, blurriness, cut-off pages, or suspicious visual anomalies in signatureCheck.visualNotes.
-2. Institutional Checklist Evaluation:
-   - Evaluate at minimum: (a) Adviser Endorsement & Signature, (b) Department Head / Dean Endorsement Slot, (c) Itemized Budget / Financial Plan, (d) Event Objectives & Program Flow, and (e) Participant Liability Waivers (mandatory if off-campus, external venue, or MPH1; mark met with clear note if not required for low-risk on-campus rooms).
-3. Form-vs-Document Cross-Check (inconsistencies):
-   - Flag any discrepancy between the submitted form metadata (title, eventDate, startTime/endTime, venue, budget, organization) and the actual content inside the attached document(s). If a form field was left blank, note only real conflicts rather than speculating.
-4. Scoring & Status:
+   - Populate detectedSignatories, missingSignatureLines, signaturesDetected, and visualNotes.
+3. Completeness Check (missingFiles, missingFields, checklistEvaluation):
+   - missingFiles: List any mandatory files missing from the submission (e.g., Signed APF Form; Participant Waivers when the venue is off-campus, external, or MPH1/Multipurpose Hall 1). Empty array [] if all required files are present.
+   - missingFields: List any blank or omitted required sections inside the forms/proposal (e.g., itemized budget, program flow, adviser name, event schedule). Empty array [] if all sections are filled.
+   - checklistEvaluation: Evaluate at minimum: (a) Signed APF & Adviser Endorsement, (b) Department Head / Dean Endorsement Slot, (c) Itemized Budget / Financial Plan, (d) Event Objectives & Program Flow, and (e) Participant Liability Waivers (mark met with clear explanation if not required for low-risk on-campus rooms).
+4. Consistency Check (inconsistencies):
+   - Cross-check the attached PDFs/images against the submitted form metadata (title, eventDate, startTime/endTime, venue, organization, budget, expectedAttendees).
+   - List every real discrepancy clearly in inconsistencies. Empty array [] if completely aligned.
+5. Strict Readiness Verdict (auditStatus, verdictMessage, overallStatus, completenessScore):
+   - auditStatus:
+     - "COMPLETE" ONLY when all mandatory files are attached, required signatures are visually detected with no missing signature lines, no required fields are missing, and zero inconsistencies exist.
+     - "DEFECTIVE" if ANY mandatory file is missing, ANY signature is missing/blank, ANY required section is incomplete, or ANY inconsistency exists.
+   - verdictMessage: A crisp 1-sentence verdict for the Admin Coordinator.
+   - overallStatus: "PASSED" if COMPLETE; "NEEDS_REVISION" for fixable gaps/missing signatures/mismatches; "FLAGGED" for blank/unreadable critical endorsements or unrelated documents.
    - completenessScore: integer 0-100.
-   - overallStatus:
-     - "PASSED" if signatures, core requirements, and metadata align cleanly.
-     - "NEEDS_REVISION" if minor/fixable items, missing signatures, or metadata mismatches exist.
-     - "FLAGGED" if critical endorsements are completely blank/unreadable, documents are unrelated to the event, or major contradictions/anomalies exist.
-5. reviewerSummary:
-   - Write a concise, objective 2-3 sentence summary for Admin Coordinators and Department Heads.`;
+   - reviewerSummary: Concise 2-3 sentence governance summary matching the overview.`;
 
-  const { response } = await generateContentWithModelFallback({
+  const { response, modelUsed } = await generateContentWithModelFallback({
     contents: [
       {
         role: "user",
@@ -233,19 +239,75 @@ Evaluation Instructions:
     },
   });
 
-  const parsed = parseJsonResponse<PreScreenResult>(response.text, "document pre-screening");
+  const parsed = parseJsonResponse<PreScreenResult>(response.text, "proposal multimodal audit");
+
+  const signatureCheck = {
+    signaturesDetected: Boolean(parsed.signatureCheck?.signaturesDetected),
+    detectedSignatories: parsed.signatureCheck?.detectedSignatories || [],
+    missingSignatureLines: parsed.signatureCheck?.missingSignatureLines || [],
+    visualNotes: parsed.signatureCheck?.visualNotes || "",
+  };
+  const missingFiles = parsed.missingFiles || [];
+  const missingFields = parsed.missingFields || [];
+  const inconsistencies = parsed.inconsistencies || [];
+  const checklistEvaluation = parsed.checklistEvaluation || [];
+
+  const hasDefects =
+    !signatureCheck.signaturesDetected ||
+    signatureCheck.missingSignatureLines.length > 0 ||
+    missingFiles.length > 0 ||
+    missingFields.length > 0 ||
+    inconsistencies.length > 0 ||
+    checklistEvaluation.some((item) => !item.met) ||
+    parsed.auditStatus === "DEFECTIVE" ||
+    parsed.overallStatus !== "PASSED";
+
+  const auditStatus: "COMPLETE" | "DEFECTIVE" = hasDefects ? "DEFECTIVE" : "COMPLETE";
+  const overallStatus: "PASSED" | "NEEDS_REVISION" | "FLAGGED" = !hasDefects
+    ? "PASSED"
+    : parsed.overallStatus === "FLAGGED"
+    ? "FLAGGED"
+    : "NEEDS_REVISION";
+
+  const overview =
+    parsed.eventSummary?.overview ||
+    parsed.reviewerSummary ||
+    `Automated audit completed for ${metadata.title || "submitted proposal"}.`;
+
+  const verdictMessage =
+    parsed.verdictMessage ||
+    (auditStatus === "COMPLETE"
+      ? "Proposal and attached files are complete, properly signed, and consistent with no missing items."
+      : "Submission has missing requirements, unsigned sections, or inconsistencies that require attention.");
+
   return {
-    ...parsed,
-    completenessScore: clamp(parsed.completenessScore, 0, 100),
-    signatureCheck: {
-      signaturesDetected: Boolean(parsed.signatureCheck?.signaturesDetected),
-      detectedSignatories: parsed.signatureCheck?.detectedSignatories || [],
-      missingSignatureLines: parsed.signatureCheck?.missingSignatureLines || [],
-      visualNotes: parsed.signatureCheck?.visualNotes || "",
+    auditStatus,
+    verdictMessage,
+    eventSummary: {
+      headline: parsed.eventSummary?.headline || metadata.title || "Event Proposal Summary",
+      overview,
+      keyHighlights:
+        parsed.eventSummary?.keyHighlights && parsed.eventSummary.keyHighlights.length > 0
+          ? parsed.eventSummary.keyHighlights
+          : [
+              `Event: ${metadata.title || "Untitled Event"} (${metadata.organization || "Student Organization"})`,
+              `Schedule: ${metadata.eventDate || "TBD"} ${metadata.startTime || ""}${metadata.endTime ? ` – ${metadata.endTime}` : ""}`.trim(),
+              `Venue: ${metadata.venue || "Unspecified"}`,
+            ],
     },
-    checklistEvaluation: parsed.checklistEvaluation || [],
-    inconsistencies: parsed.inconsistencies || [],
-    reviewerSummary: parsed.reviewerSummary || "",
+    overallStatus,
+    completenessScore: clamp(
+      hasDefects ? Math.min(parsed.completenessScore ?? 65, 89) : Math.max(parsed.completenessScore ?? 95, 90),
+      0,
+      100
+    ),
+    missingFiles,
+    missingFields,
+    signatureCheck,
+    checklistEvaluation,
+    inconsistencies,
+    reviewerSummary: parsed.reviewerSummary || overview,
+    modelUsed,
   };
 }
 

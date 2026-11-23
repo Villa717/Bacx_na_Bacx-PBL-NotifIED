@@ -6,7 +6,7 @@ let client: GoogleGenAI | null = null;
 export function getGeminiClient(): GoogleGenAI {
   if (!env.geminiApiKey) {
     throw new Error(
-      "GEMINI_API_KEY is not configured on the backend server. Add it to backend/.env before calling AI endpoints."
+      "AI service is not configured on the backend server. Please configure GEMINI_API_KEY."
     );
   }
   if (!client) {
@@ -18,13 +18,23 @@ export function getGeminiClient(): GoogleGenAI {
 export const GEMINI_MODEL = env.geminiModel;
 export const GEMINI_FALLBACK_MODELS = env.geminiFallbackModels;
 
-function isModelUnavailableError(err: unknown): boolean {
+function isFallbackableModelError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (status === 404 || status === 503 || status === 429) {
+    return true;
+  }
   const msg = err instanceof Error ? err.message : String(err);
   return (
     msg.includes("NOT_FOUND") ||
     msg.includes("404") ||
     msg.includes("no longer available") ||
-    msg.includes("not found for API version")
+    msg.includes("not found for API version") ||
+    msg.includes("503") ||
+    msg.includes("UNAVAILABLE") ||
+    msg.includes("high demand") ||
+    msg.includes("overloaded") ||
+    msg.includes("429") ||
+    msg.includes("RESOURCE_EXHAUSTED")
   );
 }
 
@@ -43,8 +53,8 @@ export async function generateContentWithModelFallback(
       return { response, modelUsed: model };
     } catch (err) {
       lastError = err;
-      if (isModelUnavailableError(err)) {
-        console.warn(`[Gemini] Model "${model}" unavailable, trying next fallback model...`);
+      if (isFallbackableModelError(err)) {
+        console.warn(`[Gemini] Model "${model}" unavailable/busy, trying next fallback model...`);
         continue;
       }
       throw err;
@@ -53,5 +63,5 @@ export async function generateContentWithModelFallback(
 
   throw lastError instanceof Error
     ? lastError
-    : new Error("No configured Gemini Flash model succeeded for this API key.");
+    : new Error("The AI service is temporarily unavailable. Please retry shortly.");
 }

@@ -299,7 +299,7 @@ router.post(
           (body.hasExternalGuests === "true" || body.hasExternalGuests === true),
       };
 
-      const result = await preScreenDocuments(documents, metadata);
+      const { modelUsed, ...result } = await preScreenDocuments(documents, metadata);
 
       if (eventId) {
         eventAttachmentStore.set(eventId, {
@@ -316,6 +316,7 @@ router.post(
       res.json({
         ...result,
         _meta: {
+          modelUsed,
           inspectedFiles: documents.map((d) => ({
             filename: d.filename,
             mimeType: d.mimeType,
@@ -324,11 +325,23 @@ router.post(
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Pre-screening failed";
+      const rawMessage = err instanceof Error ? err.message : "Automated AI audit failed.";
+      const isUpstreamBusy =
+        rawMessage.includes("503") ||
+        rawMessage.includes("UNAVAILABLE") ||
+        rawMessage.includes("high demand") ||
+        rawMessage.includes("429");
+      const friendlyMessage = isUpstreamBusy
+        ? "The AI auditing service is experiencing high demand. Please retry in a moment."
+        : rawMessage.startsWith("{")
+        ? "The AI auditing service could not process this request. Please retry shortly."
+        : rawMessage;
       const statusCode =
-        message.includes("GEMINI_API_KEY") || message.includes("SUPABASE_") ? 503 : 400;
+        rawMessage.includes("GEMINI_API_KEY") || rawMessage.includes("SUPABASE_") || isUpstreamBusy
+          ? 503
+          : 400;
       console.error("[/api/ai/prescreen]", err);
-      res.status(statusCode).json({ error: message });
+      res.status(statusCode).json({ error: friendlyMessage });
     }
   }
 );

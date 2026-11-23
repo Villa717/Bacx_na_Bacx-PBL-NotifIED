@@ -1,8 +1,14 @@
 /// <reference types="vite/client" />
 
-const ENV_BACKEND_URL = (import.meta.env.VITE_AI_BACKEND_URL || "").trim().replace(/\/$/, "");
+const ENV_API_URL = (
+  import.meta.env.VITE_AI_API_URL ||
+  import.meta.env.VITE_AI_BACKEND_URL ||
+  ""
+)
+  .trim()
+  .replace(/\/$/, "");
+
 const DEFAULT_DEPLOYED_BACKEND_URL = "https://bacxnabacx-pbl-notified-backend.vercel.app";
-const BACKEND_URL_OVERRIDE_KEY = "campussync_ai_backend_url";
 
 export const DEFAULT_STORAGE_BUCKET = "proposal-documents";
 
@@ -22,28 +28,8 @@ function isPlaceholderUrl(url: string): boolean {
 }
 
 export function getAiBackendUrl(): string {
-  try {
-    const saved = localStorage.getItem(BACKEND_URL_OVERRIDE_KEY)?.trim().replace(/\/$/, "");
-    if (saved && !isPlaceholderUrl(saved)) return saved;
-  } catch {
-    // Ignore storage access errors
-  }
-  if (ENV_BACKEND_URL && !isPlaceholderUrl(ENV_BACKEND_URL)) return ENV_BACKEND_URL;
+  if (ENV_API_URL && !isPlaceholderUrl(ENV_API_URL)) return ENV_API_URL;
   return isLocalhostHost() ? "http://localhost:4000" : DEFAULT_DEPLOYED_BACKEND_URL;
-}
-
-export function setAiBackendUrlOverride(url: string): string {
-  const cleaned = url.trim().replace(/\/$/, "");
-  try {
-    if (cleaned) {
-      localStorage.setItem(BACKEND_URL_OVERRIDE_KEY, cleaned);
-    } else {
-      localStorage.removeItem(BACKEND_URL_OVERRIDE_KEY);
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return getAiBackendUrl();
 }
 
 export function isAiBackendConfigured(): boolean {
@@ -53,9 +39,7 @@ export function isAiBackendConfigured(): boolean {
 function requireAiBackendUrl(): string {
   const baseUrl = getAiBackendUrl();
   if (!baseUrl) {
-    throw new Error(
-      "AI Backend URL is not configured for this deployed site. Deploy the backend/ folder (with GEMINI_API_KEY) and set VITE_AI_BACKEND_URL in Vercel, or paste your backend URL below."
-    );
+    throw new Error("The AI auditing service is not configured for this environment.");
   }
   return baseUrl;
 }
@@ -77,17 +61,92 @@ export interface ChecklistEvaluationItem {
   evidence: string;
 }
 
+export interface ExecutiveEventSummary {
+  headline: string;
+  overview: string;
+  keyHighlights: string[];
+}
+
 export interface PreScreenResult {
+  auditStatus?: "COMPLETE" | "DEFECTIVE";
+  verdictMessage?: string;
+  eventSummary?: ExecutiveEventSummary;
   overallStatus: "PASSED" | "NEEDS_REVISION" | "FLAGGED";
   completenessScore: number;
+  missingFiles?: string[];
+  missingFields?: string[];
   signatureCheck: SignatureCheckResult;
   checklistEvaluation: ChecklistEvaluationItem[];
   inconsistencies: string[];
   reviewerSummary: string;
   _meta?: {
+    modelUsed?: string;
     inspectedFiles?: Array<{ filename: string; mimeType: string }>;
     persisted?: boolean;
   };
+}
+
+export function deriveAuditStatus(result: PreScreenResult): "COMPLETE" | "DEFECTIVE" {
+  if (result.auditStatus === "COMPLETE" || result.auditStatus === "DEFECTIVE") {
+    return result.auditStatus;
+  }
+  const hasDefects =
+    !result.signatureCheck?.signaturesDetected ||
+    (result.signatureCheck?.missingSignatureLines?.length || 0) > 0 ||
+    (result.missingFiles?.length || 0) > 0 ||
+    (result.missingFields?.length || 0) > 0 ||
+    (result.inconsistencies?.length || 0) > 0 ||
+    (result.checklistEvaluation || []).some((c) => !c.met) ||
+    result.overallStatus !== "PASSED";
+  return hasDefects ? "DEFECTIVE" : "COMPLETE";
+}
+
+export interface CategorizedDefect {
+  category: "Missing File" | "Missing Signature" | "Missing Section" | "Inconsistency";
+  detail: string;
+}
+
+export function extractDefectItems(result: PreScreenResult): CategorizedDefect[] {
+  const defects: CategorizedDefect[] = [];
+  for (const file of result.missingFiles || []) {
+    defects.push({ category: "Missing File", detail: file });
+  }
+  if (!result.signatureCheck?.signaturesDetected && (result.signatureCheck?.missingSignatureLines?.length || 0) === 0) {
+    defects.push({
+      category: "Missing Signature",
+      detail: "No handwritten/digital signatures or official stamps were detected on the attached document(s).",
+    });
+  }
+  for (const line of result.signatureCheck?.missingSignatureLines || []) {
+    defects.push({ category: "Missing Signature", detail: line });
+  }
+  for (const field of result.missingFields || []) {
+    defects.push({ category: "Missing Section", detail: field });
+  }
+  for (const inc of result.inconsistencies || []) {
+    defects.push({ category: "Inconsistency", detail: inc });
+  }
+  // Include unmet checklist gaps only if not already captured above
+  if (defects.length === 0) {
+    for (const row of result.checklistEvaluation || []) {
+      if (!row.met) {
+        defects.push({
+          category: "Missing Section",
+          detail: `${row.requirement}: ${row.evidence}`,
+        });
+      }
+    }
+  }
+  return defects;
+}
+
+export function formatDefectsForRevisionNote(result: PreScreenResult): string {
+  const defects = extractDefectItems(result);
+  if (defects.length === 0) {
+    return result.verdictMessage || result.reviewerSummary || "Please review and update your submission.";
+  }
+  const lines = defects.map((d) => `- [${d.category}] ${d.detail}`);
+  return `Please address the following items before resubmitting:\n${lines.join("\n")}`;
 }
 
 export interface TriageResult {
@@ -198,13 +257,27 @@ export interface EventDocumentsPayload {
 // HTTP Helpers
 // ============================================================================
 
+function sanitizeErrorMessage(raw?: string, fallback?: string): string {
+  const defaultMsg = fallback || "The AI service is temporarily unavailable. Please retry in a moment.";
+  if (!raw) return defaultMsg;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{") || trimmed.includes("\"error\":{")) {
+    if (trimmed.includes("503") || trimmed.includes("UNAVAILABLE") || trimmed.includes("high demand")) {
+      return "The AI service is currently busy. Please retry in a moment.";
+    }
+    if (trimmed.includes("404") || trimmed.includes("NOT_FOUND")) {
+      return "The AI model endpoint is updating. Please retry shortly.";
+    }
+    return defaultMsg;
+  }
+  return trimmed;
+}
+
 async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch {
-    throw new Error(
-      `Could not reach the AI backend at ${getAiBackendUrl()}. Verify that backend/ is deployed and running, CORS allows this domain, and VITE_AI_BACKEND_URL is set correctly.`
-    );
+    throw new Error("Unable to connect to the AI service right now. Please try again in a moment.");
   }
 }
 
@@ -218,12 +291,14 @@ async function handleApiResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     if (res.status === 413) {
       throw new Error(
-        "Uploaded file exceeds the serverless payload limit (4.5 MB on Vercel). Please compress the PDF or upload a smaller scan."
+        "The uploaded file exceeds the 4.5 MB limit. Please compress the PDF or upload a smaller scan."
       );
     }
     throw new Error(
-      payload?.error ||
-        `AI backend error (${res.status}) at ${getAiBackendUrl()}. Check that GEMINI_API_KEY is set on the backend.`
+      sanitizeErrorMessage(
+        payload?.error,
+        `AI analysis could not be completed right now (HTTP ${res.status}). Please retry shortly.`
+      )
     );
   }
   return payload as T;

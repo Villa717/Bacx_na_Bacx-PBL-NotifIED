@@ -41,13 +41,14 @@ import { supabase } from "../lib/supabase";
 import {
   aiLocalCache,
   analyzeAiSurveyFeedback,
+  deriveAuditStatus,
+  extractDefectItems,
   fetchEventDocuments,
+  formatDefectsForRevisionNote,
   generateAiSurvey,
-  getAiBackendUrl,
   runBatchProposalTriage,
   runDocumentPreScreen,
   runProposalTriage,
-  setAiBackendUrlOverride,
   type GeneratedQuestionType,
   type GeneratedSurveyQuestion,
   type GeneratedSurveyResult,
@@ -660,11 +661,12 @@ export function CoordinatorInterface({
   const [remoteDocsByEvent, setRemoteDocsByEvent] = useState<
     Record<number, StoredEventDocumentMeta[]>
   >({});
-  const [backendUrlInput, setBackendUrlInput] = useState(() => getAiBackendUrl());
 
   const decodedSelected = decodeProposalDescription(selectedEvent?.description);
   const selectedCarriedFiles = decodedSelected.files;
   const selectedPreScreen = selectedEvent ? getEventPreScreen(selectedEvent) : undefined;
+  const selectedAuditStatus = selectedPreScreen ? deriveAuditStatus(selectedPreScreen) : null;
+  const selectedDefects = selectedPreScreen ? extractDefectItems(selectedPreScreen) : [];
   const selectedTriage = selectedEvent ? getEventTriage(selectedEvent) : undefined;
   const selectedAttachedLocal = selectedEvent
     ? attachedFilesByEvent[selectedEvent.event_id]
@@ -672,6 +674,11 @@ export function CoordinatorInterface({
   const selectedRemoteDocs = selectedEvent
     ? remoteDocsByEvent[selectedEvent.event_id] || []
     : [];
+
+  const handleOpenRevisionWithAiDefects = (report: PreScreenResult) => {
+    setRevisionFeedback(formatDefectsForRevisionNote(report));
+    setShowRevisionModal(true);
+  };
 
   // Load any Facilitator-attached PDFs & pre-screen result from backend relay when an event is selected
   useEffect(() => {
@@ -1729,14 +1736,19 @@ export function CoordinatorInterface({
                     </div>
                   </div>
 
-                  {/* AI Multimodal Pre-Check Compliance Inspector (Gemini 3.8 Flash) */}
+                  {/* Jira-Style AI Executive Summary & Automated Document Audit Panel */}
                   <div className="rounded-lg bg-white border border-[#C5D3F3] shadow-xs p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDE2EA] pb-3">
                       <div className="flex items-center gap-2">
-                        <FileCheck2 className="size-4 text-[#24408E]" />
+                        <Sparkles className="size-4 text-[#24408E]" />
                         <h3 className="text-xs font-bold text-[#18212F] uppercase tracking-wider">
-                          Multimodal AI Document &amp; Signature Pre-Screening
+                          AI Executive Summary &amp; Document Verification
                         </h3>
+                        {selectedPreScreen && (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#EAEFFA] text-[#24408E] border border-[#C5D3F3]">
+                            Auto-analyzed
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -1748,19 +1760,23 @@ export function CoordinatorInterface({
                             type="button"
                             disabled={preScreenLoading}
                             onClick={() => handleInspectProposalDocument(selectedEvent)}
-                            className="px-2.5 py-1.5 rounded-md bg-[#EAEFFA] hover:bg-[#DCE6FA] border border-[#24408E]/30 text-[11px] font-semibold text-[#24408E] flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
+                            className="px-2.5 py-1 rounded-md bg-white hover:bg-[#EAEFFA] border border-[#C9D0DB] text-[11px] font-medium text-[#24408E] flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
                           >
                             {preScreenLoading ? (
                               <Loader2 className="size-3 animate-spin" />
                             ) : (
-                              <Sparkles className="size-3 text-[#24408E]" />
+                              <RefreshCw className="size-3" />
                             )}
-                            {preScreenLoading ? "Inspecting..." : "Run AI Check on Attached PDF"}
+                            {preScreenLoading
+                              ? "Running Audit..."
+                              : selectedPreScreen
+                              ? "Re-run AI Audit"
+                              : "Run AI Audit"}
                           </button>
                         )}
-                        <label className="px-2.5 py-1.5 rounded-md bg-white hover:bg-[#F2F4F7] border border-[#C9D0DB] text-[11px] font-semibold text-[#18212F] flex items-center gap-1.5 cursor-pointer">
+                        <label className="px-2.5 py-1 rounded-md bg-white hover:bg-[#F2F4F7] border border-[#C9D0DB] text-[11px] font-medium text-[#5B6678] hover:text-[#18212F] flex items-center gap-1.5 cursor-pointer">
                           <Upload className="size-3 text-[#24408E]" />
-                          {selectedAttachedLocal ? "Replace PDF/Image" : "Attach & Inspect PDF/Image"}
+                          {selectedAttachedLocal ? "Replace PDF" : "Attach PDF"}
                           <input
                             type="file"
                             accept=".pdf,image/png,image/jpeg"
@@ -1778,14 +1794,14 @@ export function CoordinatorInterface({
                       </div>
                     </div>
 
-                    {/* Attached Proposal Documents Bar (Carried from Facilitator + Directly Attached) */}
+                    {/* Attached Proposal Documents Bar */}
                     {(selectedAttachedLocal ||
                       selectedCarriedFiles.length > 0 ||
                       selectedRemoteDocs.length > 0 ||
                       selectedEvent.document_path) && (
                       <div className="p-3 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] space-y-2 text-xs">
                         <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#24408E]">
-                          Attached Proposal Document(s)
+                          Submitted Documents
                         </div>
 
                         {selectedCarriedFiles.map((att, idx) => (
@@ -1797,12 +1813,12 @@ export function CoordinatorInterface({
                               <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
                               <span className="font-medium truncate">{att.name}</span>
                               <span className="text-[10px] font-mono text-[#1F7A4D] shrink-0">
-                                ({Math.max(1, Math.round(att.size / 1024))} KB · Sent by Facilitator)
+                                ({Math.max(1, Math.round(att.size / 1024))} KB · Submitted by Facilitator)
                               </span>
                             </span>
                             {att.tooLargeForInline && !att.storageUrl ? (
                               <span className="text-[10px] text-[#8A5A00] shrink-0">
-                                Over 3 MB — attach locally to inspect
+                                Over 3 MB — use Attach PDF above to inspect
                               </span>
                             ) : (
                               <button
@@ -1842,7 +1858,7 @@ export function CoordinatorInterface({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveLocalFile(selectedEvent.event_id)}
-                                title="Remove local attachment"
+                                title="Remove attachment"
                                 className="p-1 text-[#5B6678] hover:text-[#B3261E] cursor-pointer"
                               >
                                 <X className="size-3.5" />
@@ -1861,7 +1877,7 @@ export function CoordinatorInterface({
                                 <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
                                 <span className="font-medium truncate">{doc.filename}</span>
                                 <span className="text-[10px] font-mono text-[#5B6678] shrink-0">
-                                  ({Math.max(1, Math.round(doc.size / 1024))} KB · Sent by Facilitator)
+                                  ({Math.max(1, Math.round(doc.size / 1024))} KB · Submitted by Facilitator)
                                 </span>
                               </span>
                               <a
@@ -1893,65 +1909,144 @@ export function CoordinatorInterface({
                       </div>
                     )}
 
+                    {/* Clean User-Facing Error Notice (No Raw JSON or Debug URL Inputs) */}
                     {preScreenError && (
-                      <div className="p-3 rounded-md bg-[#FBEDEC] border border-[#E2B3AF] text-xs text-[#B3261E] space-y-2">
+                      <div className="p-3 rounded-md bg-[#FBEDEC] border border-[#E2B3AF] text-xs text-[#B3261E] flex items-center justify-between gap-3">
                         <div className="flex items-start gap-2">
                           <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#B3261E]" />
                           <span>{preScreenError}</span>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <input
-                            type="url"
-                            value={backendUrlInput}
-                            onChange={(e) => setBackendUrlInput(e.target.value)}
-                            placeholder="https://bacxnabacx-pbl-notified-backend.vercel.app"
-                            className="flex-1 min-w-[200px] p-1.5 rounded bg-white border border-[#C9D0DB] text-[11px] text-[#18212F] focus:border-[#24408E] outline-none"
-                          />
+                        {(selectedAttachedLocal ||
+                          selectedCarriedFiles.length > 0 ||
+                          selectedRemoteDocs.length > 0 ||
+                          selectedEvent.document_path) && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setAiBackendUrlOverride(backendUrlInput);
-                              setPreScreenError("");
-                            }}
-                            className="px-2.5 py-1.5 rounded bg-[#24408E] hover:bg-[#1B3270] text-white font-bold text-[10px] uppercase cursor-pointer"
+                            onClick={() => handleInspectProposalDocument(selectedEvent)}
+                            className="px-2.5 py-1 rounded bg-white hover:bg-[#EAEFFA] border border-[#E2B3AF] text-[#B3261E] font-semibold text-[11px] shrink-0 cursor-pointer"
                           >
-                            Save AI Backend URL
+                            Retry
                           </button>
-                          {(selectedAttachedLocal || selectedCarriedFiles.length > 0) && (
-                            <button
-                              type="button"
-                              onClick={() => handleInspectProposalDocument(selectedEvent)}
-                              className="px-2.5 py-1.5 rounded bg-[#EAEFFA] hover:bg-[#DCE6FA] border border-[#24408E]/30 text-[#24408E] font-bold text-[10px] uppercase cursor-pointer"
-                            >
-                              Retry Inspection
-                            </button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     )}
 
-                    {selectedPreScreen ? (
-                      <div className="space-y-3.5 text-xs">
-                        {/* Status + Completeness Score */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-md bg-[#F7F8FA] border border-[#DDE2EA]">
-                          <div className="flex items-center gap-2">
-                            {selectedPreScreen.overallStatus === "PASSED" ? (
-                              <CheckCircle2 className="size-4 text-[#1F7A4D]" />
-                            ) : selectedPreScreen.overallStatus === "NEEDS_REVISION" ? (
-                              <AlertTriangle className="size-4 text-[#8A5A00]" />
-                            ) : (
-                              <XCircle className="size-4 text-[#B3261E]" />
+                    {preScreenLoading ? (
+                      <div className="p-6 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] flex flex-col items-center justify-center text-center gap-2">
+                        <Loader2 className="size-5 animate-spin text-[#24408E]" />
+                        <p className="text-xs font-semibold text-[#18212F]">
+                          Analyzing proposal details and attached documents...
+                        </p>
+                        <p className="text-[11px] text-[#5B6678]">
+                          Generating executive summary, checking signatures, and verifying consistency.
+                        </p>
+                      </div>
+                    ) : selectedPreScreen ? (
+                      <div className="space-y-4 text-xs">
+                        {/* 1. Readiness Verdict Banner (COMPLETE vs DEFECTIVE) */}
+                        {selectedAuditStatus === "COMPLETE" ? (
+                          <div className="p-4 rounded-md bg-[#E6F3EC] border border-[#B6DFC8] space-y-1.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 text-[#1F7A4D] font-bold text-xs">
+                                <CheckCircle2 className="size-4 shrink-0" />
+                                Complete &amp; Verified — Ready for Approval
+                              </div>
+                              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-white text-[#1F7A4D] border border-[#B6DFC8]">
+                                Score: {selectedPreScreen.completenessScore}/100
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#1B5E3C] leading-relaxed">
+                              {selectedPreScreen.verdictMessage ||
+                                "The proposal and attached files are complete, properly signed, and no missing files or inconsistencies were found."}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-md bg-[#FBEDEC] border border-[#E2B3AF] space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 text-[#B3261E] font-bold text-xs">
+                                <AlertTriangle className="size-4 shrink-0" />
+                                Defective Submission — Missing Items or Inconsistencies Found
+                              </div>
+                              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-white text-[#B3261E] border border-[#E2B3AF]">
+                                Score: {selectedPreScreen.completenessScore}/100
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#8C1D18] leading-relaxed">
+                              {selectedPreScreen.verdictMessage ||
+                                "This proposal has missing files, unsigned signature lines, incomplete sections, or discrepancies with the submitted form details."}
+                            </p>
+
+                            {selectedDefects.length > 0 && (
+                              <div className="rounded-md bg-white border border-[#E2B3AF] divide-y divide-[#F3D5D2]">
+                                {selectedDefects.map((defect, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="px-3 py-2 flex items-start gap-2 text-[11px]"
+                                  >
+                                    <span
+                                      className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                        defect.category === "Inconsistency"
+                                          ? "bg-[#FFF4DC] text-[#8A5A00]"
+                                          : "bg-[#FBEDEC] text-[#B3261E]"
+                                      }`}
+                                    >
+                                      {defect.category}
+                                    </span>
+                                    <span className="text-[#18212F] leading-snug">
+                                      {defect.detail}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
                             )}
-                            <span className="font-bold text-[#18212F]">
-                              Status: {selectedPreScreen.overallStatus.replace("_", " ")}
+
+                            {normalizedStatus(selectedEvent.status) === "pending" && (
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOpenRevisionWithAiDefects(selectedPreScreen)
+                                  }
+                                  className="px-3 py-1.5 rounded-md bg-[#8A5A00] hover:bg-[#704800] text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                                >
+                                  <AlertTriangle className="size-3.5" />
+                                  Pre-fill Revision Notes &amp; Request Revisions
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 2. Jira-Style AI Executive Event Summary */}
+                        <div className="p-4 rounded-md bg-[#F7F9FF] border border-[#C5D3F3] space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-[#24408E] flex items-center gap-1.5">
+                              <Sparkles className="size-3.5" /> AI Event Summary
+                            </span>
+                            <span className="text-[10px] text-[#5B6678]">
+                              Synthesized from proposal &amp; attached files
                             </span>
                           </div>
-                          <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#EAEFFA] text-[#24408E]">
-                            Completeness: {selectedPreScreen.completenessScore}/100
-                          </span>
+                          <h4 className="text-sm font-bold text-[#18212F]">
+                            {selectedPreScreen.eventSummary?.headline || selectedEvent.title}
+                          </h4>
+                          <p className="text-xs text-[#374151] leading-relaxed">
+                            {selectedPreScreen.eventSummary?.overview ||
+                              selectedPreScreen.reviewerSummary}
+                          </p>
+                          {(selectedPreScreen.eventSummary?.keyHighlights?.length || 0) > 0 && (
+                            <ul className="space-y-1 pt-1 border-t border-[#DDE6FA] text-xs text-[#18212F]">
+                              {selectedPreScreen.eventSummary!.keyHighlights.map((point, idx) => (
+                                <li key={idx} className="flex items-start gap-2">
+                                  <span className="text-[#24408E] font-bold mt-0.5">•</span>
+                                  <span className="leading-relaxed">{point}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
 
-                        {/* Signature Verification */}
+                        {/* 3. Visual Signature Verification */}
                         <div className="p-3.5 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-[#18212F] flex items-center gap-1.5">
@@ -1959,13 +2054,16 @@ export function CoordinatorInterface({
                             </span>
                             <span
                               className={`text-[11px] font-bold ${
-                                selectedPreScreen.signatureCheck.signaturesDetected
+                                selectedPreScreen.signatureCheck.signaturesDetected &&
+                                selectedPreScreen.signatureCheck.missingSignatureLines.length === 0
                                   ? "text-[#1F7A4D]"
                                   : "text-[#B3261E]"
                               }`}
                             >
                               {selectedPreScreen.signatureCheck.signaturesDetected
-                                ? "✓ Signatures Visually Detected"
+                                ? selectedPreScreen.signatureCheck.missingSignatureLines.length > 0
+                                  ? "Partially Signed"
+                                  : "✓ Signatures Visually Detected"
                                 : "✗ No Signatures Detected"}
                             </span>
                           </div>
@@ -1983,19 +2081,6 @@ export function CoordinatorInterface({
                             </div>
                           )}
 
-                          {selectedPreScreen.signatureCheck.missingSignatureLines.length > 0 && (
-                            <div className="p-2.5 rounded bg-[#FBEDEC] border border-[#E2B3AF] text-[#B3261E] space-y-1">
-                              <div className="text-[10px] font-bold uppercase">
-                                Missing / Blank Signature Lines
-                              </div>
-                              <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                                {selectedPreScreen.signatureCheck.missingSignatureLines.map((line, i) => (
-                                  <li key={i}>{line}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
                           {selectedPreScreen.signatureCheck.visualNotes && (
                             <p className="text-[11px] text-[#5B6678]">
                               <span className="text-[#18212F] font-semibold">Visual notes: </span>
@@ -2004,7 +2089,7 @@ export function CoordinatorInterface({
                           )}
                         </div>
 
-                        {/* Checklist Evaluation */}
+                        {/* 4. Institutional Checklist Breakdown */}
                         {selectedPreScreen.checklistEvaluation.length > 0 && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                             {selectedPreScreen.checklistEvaluation.map((item, idx) => (
@@ -2018,10 +2103,10 @@ export function CoordinatorInterface({
                                   </span>
                                   <span
                                     className={`text-[10px] font-bold shrink-0 ${
-                                      item.met ? "text-[#1F7A4D]" : "text-[#8A5A00]"
+                                      item.met ? "text-[#1F7A4D]" : "text-[#B3261E]"
                                     }`}
                                   >
-                                    {item.met ? "✓ Met" : "✗ Gap"}
+                                    {item.met ? "✓ Met" : "✗ Missing"}
                                   </span>
                                 </div>
                                 <span className="text-[10px] text-[#5B6678] leading-relaxed">
@@ -2031,39 +2116,21 @@ export function CoordinatorInterface({
                             ))}
                           </div>
                         )}
-
-                        {/* Flagged Inconsistencies */}
-                        {selectedPreScreen.inconsistencies.length > 0 && (
-                          <div className="p-3 rounded-md bg-[#FFF4DC] border border-[#E5C98B] text-[#8A5A00] space-y-1">
-                            <div className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
-                              <AlertTriangle className="size-3.5" /> Flagged Form vs. Document Inconsistencies
-                            </div>
-                            <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                              {selectedPreScreen.inconsistencies.map((inc, idx) => (
-                                <li key={idx}>{inc}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* Reviewer Summary */}
-                        <div className="p-3.5 rounded-md bg-[#EAEFFA]/60 border border-[#C5D3F3] space-y-1">
-                          <div className="text-[10px] font-bold text-[#24408E] uppercase tracking-wider">
-                            AI Reviewer Summary
-                          </div>
-                          <p className="text-[#18212F] leading-relaxed text-[11px]">
-                            {selectedPreScreen.reviewerSummary}
-                          </p>
-                        </div>
                       </div>
                     ) : (
-                      <div className="p-4 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] text-xs text-[#5B6678] space-y-1">
-                        <p className="text-[#18212F] font-semibold">No AI pre-screening result recorded yet.</p>
-                        <p>
-                          {selectedCarriedFiles.length > 0
-                            ? "Click \"Run AI Check on Attached PDF\" above to inspect the Facilitator's submitted document with Gemini 3.8 Flash."
-                            : "Upload the submitted APF/waiver PDF or scanned image above (or submit a new proposal from the Facilitator Portal) to verify signatures and compliance with Gemini 3.8 Flash."}
-                        </p>
+                      <div className="p-4 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] text-xs text-[#5B6678] flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <p className="text-[#18212F] font-semibold">
+                            No automated AI audit recorded for this proposal yet.
+                          </p>
+                          <p>
+                            {selectedCarriedFiles.length > 0 ||
+                            selectedRemoteDocs.length > 0 ||
+                            selectedEvent.document_path
+                              ? "Click \"Run AI Audit\" above to generate the executive summary and verify signatures."
+                              : "New proposals submitted by Facilitators are analyzed automatically. For older records without files, use \"Attach PDF\" above."}
+                          </p>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2108,7 +2175,9 @@ export function CoordinatorInterface({
                       <div className="font-bold text-[#8A5A00] uppercase tracking-wider text-[10px]">
                         Coordinator Feedback Sent
                       </div>
-                      <p className="text-[#6B4600] leading-relaxed">{selectedEvent.admin_feedback}</p>
+                      <p className="text-[#6B4600] leading-relaxed whitespace-pre-line">
+                        {selectedEvent.admin_feedback}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -2136,29 +2205,66 @@ export function CoordinatorInterface({
 
                 {/* Fixed Decision Footer Actions (only shown for pending proposals awaiting review) */}
                 {normalizedStatus(selectedEvent.status) === "pending" ? (
-                  <div className="p-4 md:p-5 border-t border-[#DDE2EA] bg-white flex items-center justify-end gap-3 sticky bottom-0">
-                    <button
-                      onClick={() => handleUpdateStatus("rejected")}
-                      disabled={actionLoading}
-                      className="px-4 py-2 rounded-md border border-[#E2B3AF] bg-white text-[#B3261E] hover:bg-[#FBEDEC] text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      Reject
-                    </button>
-                    <button
-                      onClick={() => setShowRevisionModal(true)}
-                      disabled={actionLoading}
-                      className="px-4 py-2 rounded-md border border-[#E5C98B] bg-[#FFF4DC]/60 text-[#8A5A00] hover:bg-[#FFF4DC] text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      Needs Revision
-                    </button>
-                    <button
-                      onClick={() => handleUpdateStatus("approved")}
-                      disabled={actionLoading}
-                      className="px-5 py-2 rounded-md bg-[#24408E] hover:bg-[#1B3270] text-white text-xs font-semibold transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-xs"
-                    >
-                      <CheckCircle2 className="size-4" />
-                      Endorse &amp; Sign (SHA-256)
-                    </button>
+                  <div className="p-4 md:p-5 border-t border-[#DDE2EA] bg-white flex flex-wrap items-center justify-between gap-3 sticky bottom-0">
+                    <div className="text-xs">
+                      {selectedAuditStatus === "DEFECTIVE" ? (
+                        <span className="text-[#B3261E] font-medium flex items-center gap-1.5">
+                          <AlertTriangle className="size-3.5 shrink-0" />
+                          AI audit recommends requesting revisions or rejecting due to detected defects.
+                        </span>
+                      ) : selectedAuditStatus === "COMPLETE" ? (
+                        <span className="text-[#1F7A4D] font-medium flex items-center gap-1.5">
+                          <CheckCircle2 className="size-3.5 shrink-0" />
+                          All documents and signatures verified — ready to approve.
+                        </span>
+                      ) : (
+                        <span className="text-[#5B6678]">Select a clearance decision below.</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2.5 ml-auto">
+                      <button
+                        onClick={() => handleUpdateStatus("rejected")}
+                        disabled={actionLoading}
+                        className={`px-4 py-2 rounded-md text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer ${
+                          selectedAuditStatus === "DEFECTIVE"
+                            ? "bg-[#B3261E] hover:bg-[#8C1D18] text-white shadow-xs"
+                            : "border border-[#E2B3AF] bg-white text-[#B3261E] hover:bg-[#FBEDEC]"
+                        }`}
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (selectedPreScreen && selectedAuditStatus === "DEFECTIVE" && !revisionFeedback.trim()) {
+                            setRevisionFeedback(formatDefectsForRevisionNote(selectedPreScreen));
+                          }
+                          setShowRevisionModal(true);
+                        }}
+                        disabled={actionLoading}
+                        className={`px-4 py-2 rounded-md text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer ${
+                          selectedAuditStatus === "DEFECTIVE"
+                            ? "bg-[#D97706] hover:bg-[#B45309] text-white shadow-xs"
+                            : "border border-[#E5C98B] bg-[#FFF4DC]/60 text-[#8A5A00] hover:bg-[#FFF4DC]"
+                        }`}
+                      >
+                        Request Revisions
+                      </button>
+                      <button
+                        onClick={() => handleUpdateStatus("approved")}
+                        disabled={actionLoading}
+                        className={`px-5 py-2 rounded-md text-xs font-semibold transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer ${
+                          selectedAuditStatus === "COMPLETE"
+                            ? "bg-[#1F7A4D] hover:bg-[#17603B] text-white shadow-sm"
+                            : selectedAuditStatus === "DEFECTIVE"
+                            ? "border border-[#C9D0DB] bg-white text-[#18212F] hover:bg-[#F2F4F7]"
+                            : "bg-[#24408E] hover:bg-[#1B3270] text-white shadow-xs"
+                        }`}
+                      >
+                        <CheckCircle2 className="size-4" />
+                        Approve &amp; Sign (SHA-256)
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="px-6 py-3.5 border-t border-[#DDE2EA] bg-white flex items-center justify-between text-xs sticky bottom-0">

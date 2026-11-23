@@ -17,9 +17,20 @@ export interface ChecklistEvaluationItem {
   evidence: string;
 }
 
+export interface ExecutiveEventSummary {
+  headline: string;
+  overview: string;
+  keyHighlights: string[];
+}
+
 export interface PreScreenResult {
+  auditStatus: "COMPLETE" | "DEFECTIVE";
+  verdictMessage: string;
+  eventSummary: ExecutiveEventSummary;
   overallStatus: "PASSED" | "NEEDS_REVISION" | "FLAGGED";
   completenessScore: number;
+  missingFiles: string[];
+  missingFields: string[];
   signatureCheck: SignatureCheckResult;
   checklistEvaluation: ChecklistEvaluationItem[];
   inconsistencies: string[];
@@ -29,15 +40,60 @@ export interface PreScreenResult {
 export const preScreenResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
+    auditStatus: {
+      type: Type.STRING,
+      enum: ["COMPLETE", "DEFECTIVE"],
+      description:
+        "COMPLETE ONLY when all mandatory files are attached, all required signatures are visibly present, all required sections are filled, and zero inconsistencies exist between the form and attached files. Otherwise DEFECTIVE.",
+    },
+    verdictMessage: {
+      type: Type.STRING,
+      description:
+        "Clear, concise 1-sentence readiness verdict for the Admin Coordinator (e.g., confirming everything is complete and signed, or summarizing the key defects found).",
+    },
+    eventSummary: {
+      type: Type.OBJECT,
+      properties: {
+        headline: {
+          type: Type.STRING,
+          description:
+            "Short Jira-style 1-line executive headline capturing what the event is and who is organizing it.",
+        },
+        overview: {
+          type: Type.STRING,
+          description:
+            "Clear 2-3 sentence Jira-style executive summary synthesizing both the submitted proposal details and the contents of all attached documents so an Admin Coordinator understands the entire event at a glance.",
+        },
+        keyHighlights: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description:
+            "3 to 6 crisp, scannable bullet points extracted from the proposal and attached files covering event purpose, schedule, venue, target audience/logistics, and budget highlights.",
+        },
+      },
+      required: ["headline", "overview", "keyHighlights"],
+    },
     overallStatus: {
       type: Type.STRING,
       enum: ["PASSED", "NEEDS_REVISION", "FLAGGED"],
       description:
-        "PASSED if required endorsements, signatures, and proposal sections are complete and consistent; NEEDS_REVISION for fixable gaps; FLAGGED for severe anomalies, contradictions, or forged/blank critical endorsements.",
+        "PASSED if auditStatus is COMPLETE; NEEDS_REVISION for fixable gaps/missing signatures/mismatches; FLAGGED for severe anomalies, blank/unreadable endorsements, or unrelated documents.",
     },
     completenessScore: {
       type: Type.INTEGER,
       description: "Overall compliance and completeness score from 0 to 100.",
+    },
+    missingFiles: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description:
+        "List of missing mandatory documents (e.g., 'Signed Activity Proposal Form (APF)', 'Participant Liability Waivers (required for off-campus / MPH1 venue)'). Empty array if all required files are attached.",
+    },
+    missingFields: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description:
+        "List of required document or proposal sections that are blank, incomplete, or omitted (e.g., 'Itemized Budget Breakdown', 'Program Flow / Schedule'). Empty array if complete.",
     },
     signatureCheck: {
       type: Type.OBJECT,
@@ -94,7 +150,7 @@ export const preScreenResponseSchema: Schema = {
       type: Type.ARRAY,
       items: { type: Type.STRING },
       description:
-        "List of mismatches between submitted proposal form metadata (title, date, venue, budget, time, organization) and the uploaded document contents. Empty array if consistent.",
+        "List of discrepancies between submitted proposal form metadata (title, date, time, venue, organizer, budget, attendee count) and the attached PDF/image contents. Empty array if completely consistent.",
     },
     reviewerSummary: {
       type: Type.STRING,
@@ -102,8 +158,13 @@ export const preScreenResponseSchema: Schema = {
     },
   },
   required: [
+    "auditStatus",
+    "verdictMessage",
+    "eventSummary",
     "overallStatus",
     "completenessScore",
+    "missingFiles",
+    "missingFields",
     "signatureCheck",
     "checklistEvaluation",
     "inconsistencies",

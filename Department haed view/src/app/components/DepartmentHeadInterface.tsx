@@ -33,12 +33,11 @@ import { supabase } from "../../lib/supabase";
 import {
   aiLocalCache,
   analyzeAiSurveyFeedback,
+  deriveAuditStatus,
   fetchEventDocuments,
-  getAiBackendUrl,
   runBatchProposalTriage,
   runDocumentPreScreen,
   runProposalTriage,
-  setAiBackendUrlOverride,
   type PreScreenResult,
   type StoredEventDocumentMeta,
   type SurveyDiagnosticsResult,
@@ -1059,7 +1058,6 @@ function ProposalApprovalsView({
   const [remoteDocsByEvent, setRemoteDocsByEvent] = useState<
     Record<number, StoredEventDocumentMeta[]>
   >({});
-  const [backendUrlInput, setBackendUrlInput] = useState(() => getAiBackendUrl());
 
   const selectedAttachedLocal = selected
     ? attachedFilesByEvent[selected.event_id]
@@ -1623,37 +1621,18 @@ function ProposalApprovalsView({
               {preScreenError && (
                 <div
                   role="alert"
-                  className="rounded-md bg-[#FBEDEC] border border-[#E2B3AF] px-3 py-2.5 text-sm text-[#B3261E] space-y-2"
+                  className="rounded-md bg-[#FBEDEC] border border-[#E2B3AF] px-3 py-2.5 text-sm text-[#B3261E] flex items-center justify-between gap-2"
                 >
                   <p>{preScreenError}</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="url"
-                      value={backendUrlInput}
-                      onChange={(e) => setBackendUrlInput(e.target.value)}
-                      placeholder="Paste your real deployed backend URL (e.g. https://backend-xyz.vercel.app)"
-                      className={`${input} flex-1 min-w-[200px] py-1.5 text-xs`}
-                    />
+                  {(selectedAttachedLocal || selectedCarriedFiles.length > 0) && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setAiBackendUrlOverride(backendUrlInput);
-                        setPreScreenError("");
-                      }}
-                      className={`${btnPrimary} py-1.5 text-xs`}
+                      onClick={() => handleInspectDocument(selected)}
+                      className={`${btnOutline} py-1 text-xs shrink-0`}
                     >
-                      Save AI Backend URL
+                      Retry
                     </button>
-                    {(selectedAttachedLocal || selectedCarriedFiles.length > 0) && (
-                      <button
-                        type="button"
-                        onClick={() => handleInspectDocument(selected)}
-                        className={`${btnOutline} py-1.5 text-xs`}
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -1661,21 +1640,45 @@ function ProposalApprovalsView({
                 <div className="space-y-3 rounded-md border border-[#DDE2EA] bg-white p-4 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#DDE2EA] pb-3">
                     <span
-                      className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                        aiPreScreen.overallStatus === "PASSED"
+                      className={`rounded px-2.5 py-0.5 text-xs font-semibold ${
+                        deriveAuditStatus(aiPreScreen) === "COMPLETE"
                           ? "bg-[#E6F3EC] text-[#1F7A4D]"
-                          : aiPreScreen.overallStatus === "NEEDS_REVISION"
-                          ? "bg-[#FFF4DC] text-[#8A5A00]"
                           : "bg-[#FBEDEC] text-[#B3261E]"
                       }`}
                     >
-                      {aiPreScreen.overallStatus.replace("_", " ")}
+                      {deriveAuditStatus(aiPreScreen) === "COMPLETE"
+                        ? "Complete & Verified"
+                        : "Defective / Needs Attention"}
                     </span>
                     <span className="text-xs font-medium text-[#5B6678]">
                       Completeness score:{" "}
                       <strong className="text-[#18212F]">{aiPreScreen.completenessScore} / 100</strong>
                     </span>
                   </div>
+
+                  {aiPreScreen.eventSummary && (
+                    <div className="rounded-md bg-[#F7F9FF] border border-[#C5D3F3] p-3.5 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[#24408E]">
+                        AI Event Summary
+                      </p>
+                      <p className="font-semibold text-[#18212F]">
+                        {aiPreScreen.eventSummary.headline}
+                      </p>
+                      <p className="text-xs text-[#374151] leading-relaxed">
+                        {aiPreScreen.eventSummary.overview}
+                      </p>
+                      {aiPreScreen.eventSummary.keyHighlights?.length > 0 && (
+                        <ul className="space-y-1 pt-1 border-t border-[#DDE6FA] text-xs text-[#18212F]">
+                          {aiPreScreen.eventSummary.keyHighlights.map((pt, i) => (
+                            <li key={i} className="flex items-start gap-1.5">
+                              <span className="text-[#24408E] font-bold">•</span>
+                              <span>{pt}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
 
                   {/* Signature Verification */}
                   <div className="rounded-md bg-[#F7F8FA] p-3 space-y-2 border border-[#DDE2EA]">

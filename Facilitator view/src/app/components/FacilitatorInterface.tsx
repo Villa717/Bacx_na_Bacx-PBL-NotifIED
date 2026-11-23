@@ -7,7 +7,6 @@ import {
   FileText,
   AlertCircle,
   RefreshCw,
-  Sparkles,
   ShieldCheck,
   CheckCircle2,
   Paperclip,
@@ -21,10 +20,6 @@ import {
   PanelLeftOpen,
   Megaphone,
   BellRing,
-  Loader2,
-  XCircle,
-  PenTool,
-  FileCheck2,
   Pencil,
   ArrowLeft,
   ExternalLink,
@@ -33,9 +28,7 @@ import { supabase } from "../../lib/supabase";
 import {
   aiLocalCache,
   DEFAULT_STORAGE_BUCKET,
-  getAiBackendUrl,
   runDocumentPreScreen,
-  setAiBackendUrlOverride,
   uploadEventDocuments,
   type PreScreenResult,
 } from "../../lib/aiClient";
@@ -74,14 +67,14 @@ const DEFAULT_SYSTEM_ANNOUNCEMENTS: AnnouncementItem[] = [
     id: 2,
     title: "Off-Campus & MPH1 Waiver Enforcement",
     content:
-      "Proposals utilizing Multipurpose Hall 1 (MPH1) or off-campus venues require attached participant liability waivers for AI Pre-Check clearance.",
+      "Proposals utilizing Multipurpose Hall 1 (MPH1) or off-campus venues require attached participant liability waivers for clearance review.",
     created_at: "Nov 15, 2026",
   },
   {
     id: 3,
-    title: "CampusSync System Notice (v2.5)",
+    title: "CampusSync Clearance Guidelines",
     content:
-      "Automated optical pre-checking now runs directly upon clicking 'Check & Submit Proposal'. Ensure scans are legible before submission.",
+      "Ensure your Activity Proposal Form (APF) and any required waivers are signed and legible before submitting your proposal.",
     created_at: "Nov 12, 2026",
   },
 ];
@@ -128,7 +121,7 @@ export function FacilitatorInterface({
   const [editingEvent, setEditingEvent] = useState<any | null>(null);
   const [existingCarriedFiles, setExistingCarriedFiles] = useState<CarriedAttachmentFile[]>([]);
 
-  // Form states
+  // Standard proposal form states
   const [title, setTitle] = useState("");
   const [organization, setOrganization] = useState(currentUser?.organization || "CS Society");
   const [date, setDate] = useState("");
@@ -142,16 +135,10 @@ export function FacilitatorInterface({
   const [hasExternalGuests, setHasExternalGuests] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Multimodal AI Document & Visual Signature Pre-Screening States
+  // Standard file attachment states
   const [apfFile, setApfFile] = useState<File | null>(null);
   const [waiverFile, setWaiverFile] = useState<File | null>(null);
-  const [preScreening, setPreScreening] = useState(false);
-  const [preScreenError, setPreScreenError] = useState("");
-  const [backendUrlInput, setBackendUrlInput] = useState(() => getAiBackendUrl());
-  const [preScreenResult, setPreScreenResult] = useState<PreScreenResult | null>(null);
-  const [cachedPreScreens, setCachedPreScreens] = useState<Record<string, PreScreenResult>>(() =>
-    aiLocalCache.getPreScreens()
-  );
+  const [supportingFile, setSupportingFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (currentUser?.organization && !editingEvent) {
@@ -175,8 +162,7 @@ export function FacilitatorInterface({
     setHasExternalGuests(false);
     setApfFile(null);
     setWaiverFile(null);
-    setPreScreenResult(null);
-    setPreScreenError("");
+    setSupportingFile(null);
   };
 
   const handleStartEditProposal = (ev: any) => {
@@ -195,17 +181,13 @@ export function FacilitatorInterface({
     setEstimatedBudget(ev.estimated_budget != null ? String(ev.estimated_budget) : "");
     setHasExternalGuests(Boolean(ev.has_external_guests));
 
-    // Rehydrate previously attached APF & Waiver files so the facilitator can keep or replace them
+    // Rehydrate previously attached files so the facilitator can keep or replace them
     const rehydrated = decoded.files
       .map((att) => carriedAttachmentToFile(att))
       .filter((f): f is File => Boolean(f));
     setApfFile(rehydrated[0] || null);
     setWaiverFile(rehydrated[1] || null);
-
-    const existingPre =
-      ev.ai_prescreen_result || decoded.preScreen || cachedPreScreens[String(ev.event_id)] || null;
-    setPreScreenResult(existingPre);
-    setPreScreenError("");
+    setSupportingFile(rehydrated[2] || null);
     setActiveNav("submit");
   };
 
@@ -267,59 +249,9 @@ export function FacilitatorInterface({
     };
   }, []);
 
-  const isSupportedMultimodalFile = (file: File) =>
+  const isSupportedDocumentFile = (file: File) =>
     ["application/pdf", "image/png", "image/jpeg", "image/jpg"].includes(file.type) ||
     /\.(pdf|png|jpe?g)$/i.test(file.name);
-
-  const handleRunAiPreScreen = async (): Promise<PreScreenResult | null> => {
-    if (!apfFile) {
-      setPreScreenError(
-        "Attach the Signed APF Form (PDF, PNG, or JPEG) before running the AI Document & Signature Check."
-      );
-      return null;
-    }
-
-    const filesToInspect: File[] = [];
-    if (isSupportedMultimodalFile(apfFile)) {
-      filesToInspect.push(apfFile);
-    } else {
-      setPreScreenError("APF file must be a PDF, PNG, or JPEG for multimodal AI inspection.");
-      return null;
-    }
-
-    if (waiverFile && isSupportedMultimodalFile(waiverFile)) {
-      filesToInspect.push(waiverFile);
-    }
-
-    setPreScreening(true);
-    setPreScreenError("");
-
-    try {
-      const result = await runDocumentPreScreen({
-        files: filesToInspect,
-        metadata: {
-          title: title.trim() || undefined,
-          organization: organization.trim() || undefined,
-          eventDate: date || undefined,
-          startTime: startTime || undefined,
-          endTime: endTime || undefined,
-          venue: venue.trim() || undefined,
-          description: description.trim() || undefined,
-          budget: estimatedBudget.trim() || undefined,
-          expectedAttendees: expectedAttendees ? Number(expectedAttendees) : undefined,
-          hasExternalGuests,
-        },
-      });
-      setPreScreenResult(result);
-      return result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "AI pre-screening request failed.";
-      setPreScreenError(msg);
-      return null;
-    } finally {
-      setPreScreening(false);
-    }
-  };
 
   const tryUploadToStorage = async (file: File, prefix: string): Promise<string | null> => {
     try {
@@ -338,6 +270,41 @@ export function FacilitatorInterface({
     }
   };
 
+  const persistAutomatedAuditResult = async (
+    eventId: number,
+    cleanDesc: string,
+    carriedFiles: CarriedAttachmentFile[],
+    auditResult: PreScreenResult
+  ) => {
+    aiLocalCache.savePreScreen(eventId, auditResult);
+
+    // Re-encode description with the completed AI audit report so Admin & Dept Head portals
+    // receive it seamlessly across domains even without extra Supabase JSONB columns
+    const updatedDescription = encodeProposalDescriptionWithAttachments(cleanDesc, {
+      files: carriedFiles,
+      preScreen: auditResult,
+    });
+
+    const { error: extErr } = await supabase
+      .from("events")
+      .update({
+        description: updatedDescription,
+        ai_prescreen_result: auditResult,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("event_id", eventId);
+
+    if (extErr) {
+      await supabase
+        .from("events")
+        .update({
+          description: updatedDescription,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("event_id", eventId);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -345,36 +312,22 @@ export function FacilitatorInterface({
       editingEvent && (existingCarriedFiles.length > 0 || Boolean(editingEvent.document_path));
 
     if (!apfFile && !hasExistingDocument) {
-      alert("Missing Required Document: Please attach the Signed APF Form before submitting for review.");
+      alert("Missing Required Document: Please attach the Signed APF Form before submitting.");
       return;
     }
 
     setSubmitting(true);
 
-    // Run real multimodal AI pre-screen if files are attached and not yet checked
-    let aiResult = preScreenResult;
-    if (!aiResult && apfFile) {
-      aiResult = await handleRunAiPreScreen();
-    }
-
-    if (aiResult && (aiResult.overallStatus === "FLAGGED" || aiResult.overallStatus === "NEEDS_REVISION")) {
-      const missingCount = aiResult.signatureCheck.missingSignatureLines.length;
-      const issueSummary =
-        missingCount > 0
-          ? `AI Pre-Screen detected ${missingCount} missing signature line(s) and status "${aiResult.overallStatus}".`
-          : `AI Pre-Screen returned status "${aiResult.overallStatus}" (score ${aiResult.completenessScore}/100).`;
-      const proceed = window.confirm(
-        `${issueSummary}\n\nDo you still want to ${editingEvent ? "resubmit" : "submit"} this proposal for review, or click Cancel to fix the flagged gaps first?`
-      );
-      if (!proceed) {
-        setSubmitting(false);
-        return;
-      }
-    }
-
-    // Attempt optional Supabase Storage upload (gracefully ignored if bucket isn't provisioned)
-    const documentPath = apfFile ? await tryUploadToStorage(apfFile, "apf") : editingEvent?.document_path || null;
-    const waiverPath = waiverFile ? await tryUploadToStorage(waiverFile, "waivers") : editingEvent?.waiver_path || null;
+    // 1. Upload attached files to Supabase Storage (when bucket is available)
+    const documentPath = apfFile
+      ? await tryUploadToStorage(apfFile, "apf")
+      : editingEvent?.document_path || null;
+    const waiverPath = waiverFile
+      ? await tryUploadToStorage(waiverFile, "waivers")
+      : editingEvent?.waiver_path || null;
+    const supportingPath = supportingFile
+      ? await tryUploadToStorage(supportingFile, "supporting")
+      : null;
 
     const documentPublicUrl = documentPath
       ? supabase.storage.from(DEFAULT_STORAGE_BUCKET).getPublicUrl(documentPath).data?.publicUrl || null
@@ -382,22 +335,38 @@ export function FacilitatorInterface({
     const waiverPublicUrl = waiverPath
       ? supabase.storage.from(DEFAULT_STORAGE_BUCKET).getPublicUrl(waiverPath).data?.publicUrl || null
       : null;
+    const supportingPublicUrl = supportingPath
+      ? supabase.storage.from(DEFAULT_STORAGE_BUCKET).getPublicUrl(supportingPath).data?.publicUrl || null
+      : null;
 
-    // Package attached PDFs + AI pre-screen so they carry over automatically to Admin & Department Head
+    // 2. Package attached files so they carry over to Admin Coordinator & Department Head
+    const filesToAnalyze: File[] = [];
     let carriedFiles: CarriedAttachmentFile[] = [];
-    if (apfFile && isSupportedMultimodalFile(apfFile)) {
+
+    if (apfFile && isSupportedDocumentFile(apfFile)) {
+      filesToAnalyze.push(apfFile);
       carriedFiles.push(await fileToCarriedAttachment(apfFile, documentPublicUrl));
     }
-    if (waiverFile && isSupportedMultimodalFile(waiverFile)) {
+    if (waiverFile && isSupportedDocumentFile(waiverFile)) {
+      filesToAnalyze.push(waiverFile);
       carriedFiles.push(await fileToCarriedAttachment(waiverFile, waiverPublicUrl));
+    }
+    if (supportingFile && isSupportedDocumentFile(supportingFile)) {
+      filesToAnalyze.push(supportingFile);
+      carriedFiles.push(await fileToCarriedAttachment(supportingFile, supportingPublicUrl));
     }
     if (carriedFiles.length === 0 && existingCarriedFiles.length > 0) {
       carriedFiles = existingCarriedFiles;
+      existingCarriedFiles.forEach((att) => {
+        const reconstructed = carriedAttachmentToFile(att);
+        if (reconstructed) filesToAnalyze.push(reconstructed);
+      });
     }
 
-    const encodedDescription = encodeProposalDescriptionWithAttachments(description.trim(), {
+    const cleanDescription = description.trim();
+    const encodedDescription = encodeProposalDescriptionWithAttachments(cleanDescription, {
       files: carriedFiles,
-      preScreen: aiResult,
+      preScreen: null,
     });
 
     const basePayload = {
@@ -418,11 +387,11 @@ export function FacilitatorInterface({
       proposed_attendees: expectedAttendees ? Number(expectedAttendees) : null,
       estimated_budget: estimatedBudget ? Number(estimatedBudget) : null,
       has_external_guests: hasExternalGuests,
-      ...(aiResult ? { ai_prescreen_result: aiResult } : {}),
       ...(documentPath ? { document_bucket: DEFAULT_STORAGE_BUCKET, document_path: documentPath } : {}),
       ...(waiverPath ? { waiver_path: waiverPath } : {}),
     };
 
+    // 3. Save proposal record to Supabase (insert new or update revised proposal)
     let targetEventId: number | undefined;
     let saveError: { message: string } | null = null;
 
@@ -431,6 +400,7 @@ export function FacilitatorInterface({
       const updateExtended = {
         ...extendedPayload,
         admin_feedback: null,
+        ai_prescreen_result: null,
         updated_at: new Date().toISOString(),
       };
       const updateBase = {
@@ -475,29 +445,48 @@ export function FacilitatorInterface({
 
     if (saveError) {
       alert(`Submission error: ${saveError.message}`);
-    } else {
-      if (targetEventId) {
-        const filesToRelay: File[] = [];
-        if (apfFile && isSupportedMultimodalFile(apfFile)) filesToRelay.push(apfFile);
-        if (waiverFile && isSupportedMultimodalFile(waiverFile)) filesToRelay.push(waiverFile);
-        if (filesToRelay.length > 0 || aiResult) {
-          await uploadEventDocuments(targetEventId, filesToRelay, aiResult);
-        }
-
-        if (aiResult) {
-          aiLocalCache.savePreScreen(targetEventId, aiResult);
-          setCachedPreScreens(aiLocalCache.getPreScreens());
-        }
-      }
-      alert(
-        editingEvent
-          ? "Revised proposal resubmitted to the Admin Coordinator for review!"
-          : "Proposal submitted successfully to CampusSync!"
-      );
-      resetForm();
-      await fetchMyEvents();
-      setActiveNav("submitted");
+      setSubmitting(false);
+      return;
     }
+
+    // 4. Automatically trigger backend Multimodal AI audit so the Admin Coordinator receives
+    //    the Jira-style executive summary & COMPLETE/DEFECTIVE verification report automatically
+    if (targetEventId && filesToAnalyze.length > 0) {
+      const metadataForAudit = {
+        title: title.trim() || undefined,
+        organization: organization.trim() || undefined,
+        eventDate: date || undefined,
+        startTime: startTime || undefined,
+        endTime: endTime || undefined,
+        venue: venue.trim() || undefined,
+        description: cleanDescription || undefined,
+        budget: estimatedBudget.trim() || undefined,
+        expectedAttendees: expectedAttendees ? Number(expectedAttendees) : undefined,
+        hasExternalGuests,
+      };
+
+      try {
+        await uploadEventDocuments(targetEventId, filesToAnalyze, null);
+        const auditResult = await runDocumentPreScreen({
+          files: filesToAnalyze,
+          eventId: targetEventId,
+          metadata: metadataForAudit,
+        });
+        await persistAutomatedAuditResult(targetEventId, cleanDescription, carriedFiles, auditResult);
+      } catch (err) {
+        // Never interrupt or expose technical AI errors to the Facilitator; Admin can re-run audit if needed
+        console.warn("Background AI audit deferred:", err);
+      }
+    }
+
+    alert(
+      editingEvent
+        ? "Revised proposal resubmitted to the Admin Coordinator for review!"
+        : "Proposal submitted successfully to CampusSync!"
+    );
+    resetForm();
+    await fetchMyEvents();
+    setActiveNav("submitted");
     setSubmitting(false);
   };
 
@@ -567,7 +556,6 @@ export function FacilitatorInterface({
 
           {/* Categorized Navigation Menu */}
           <nav className="py-4 px-2 space-y-5">
-            {/* Group 1: Overview */}
             <div>
               {!isSidebarCollapsed && (
                 <div className="px-3 mb-1.5 text-[10px] font-semibold tracking-wider text-[#B8C3E3] uppercase">
@@ -602,7 +590,6 @@ export function FacilitatorInterface({
               </button>
             </div>
 
-            {/* Group 2: Proposals */}
             <div>
               {!isSidebarCollapsed && (
                 <div className="px-3 mb-1.5 text-[10px] font-semibold tracking-wider text-[#B8C3E3] uppercase">
@@ -754,7 +741,7 @@ export function FacilitatorInterface({
                           </span>
                         </div>
 
-                        <div className="p-2.5 rounded bg-[#FFF4DC] border border-[#E5C98B] text-xs text-[#6B4600]">
+                        <div className="p-2.5 rounded bg-[#FFF4DC] border border-[#E5C98B] text-xs text-[#6B4600] whitespace-pre-line">
                           <span className="font-bold text-[#8A5A00] block text-[10px] uppercase mb-0.5">
                             Admin Coordinator Remarks:
                           </span>
@@ -814,7 +801,7 @@ export function FacilitatorInterface({
           </div>
         )}
 
-        {/* ── TAB 2: SUBMIT OR EDIT & RESUBMIT PROPOSAL ── */}
+        {/* ── TAB 2: CLEAN PROPOSAL SUBMISSION / EDIT FORM (NO AI UI) ── */}
         {activeNav === "submit" && (
           <div className="flex-1 overflow-y-auto p-6 md:p-8">
             <div className="max-w-3xl mx-auto rounded-lg bg-white border border-[#DDE2EA] p-6 shadow-xs h-fit space-y-4">
@@ -826,7 +813,7 @@ export function FacilitatorInterface({
                     </>
                   ) : (
                     <>
-                      <FileText className="size-4" /> Submit New Proposal
+                      <FileText className="size-4" /> Submit Event Proposal
                     </>
                   )}
                 </h2>
@@ -849,9 +836,9 @@ export function FacilitatorInterface({
                 <div className="p-4 rounded-md bg-[#FFF4DC] border border-[#E5C98B] text-left space-y-1">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-[#8A5A00]">
                     <AlertTriangle className="size-4 shrink-0" />
-                    Coordinator Revision Request — Update the details/documents below and click &ldquo;Resubmit to Admin&rdquo;
+                    Coordinator Revision Request — Update the details/documents below and resubmit
                   </div>
-                  <p className="text-xs text-[#6B4600] leading-relaxed">
+                  <p className="text-xs text-[#6B4600] leading-relaxed whitespace-pre-line">
                     {editingEvent.admin_feedback ||
                       "Please update the proposal information or attach corrected compliance documents."}
                   </p>
@@ -927,7 +914,6 @@ export function FacilitatorInterface({
                   />
                 </div>
 
-                {/* Optional Logistics Metadata for AI Cross-Check & Queue Triage */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-[#18212F] block mb-1">
@@ -991,301 +977,125 @@ export function FacilitatorInterface({
                   />
                 </div>
 
-                {/* Clearance Packet & Multimodal AI Pre-Check Intake */}
-                <div className="p-4 rounded-md bg-[#F7F8FA] border border-[#C5D3F3] space-y-3 mt-3">
+                {/* Standard Supporting Document Uploads (No AI Controls on Facilitator Side) */}
+                <div className="p-4 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] space-y-2.5 mt-3">
                   <div className="flex items-center justify-between border-b border-[#DDE2EA] pb-2">
-                    <span className="text-[11px] font-bold text-[#18212F] uppercase tracking-wider flex items-center gap-1.5">
-                      <Sparkles className="size-3.5 text-[#24408E]" /> AI Multimodal Pre-Check Intake
+                    <span className="text-xs font-bold text-[#18212F] uppercase tracking-wider flex items-center gap-1.5">
+                      <Paperclip className="size-3.5 text-[#24408E]" /> Clearance Documents &amp; Attachments
                     </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#EAEFFA] text-[#24408E] border border-[#C5D3F3]">
-                      Gemini 3.8 Flash
-                    </span>
+                    <span className="text-[11px] text-[#5B6678]">PDF, PNG, or JPEG</span>
                   </div>
 
-                  {/* Interactive File Pickers */}
-                  <div className="space-y-2 text-xs text-[#5B6678]">
-                    {/* APF Form File Picker */}
-                    <div className="flex items-center justify-between p-2.5 rounded-md bg-white border border-[#DDE2EA] hover:border-[#24408E]/50 transition">
-                      <label className="flex items-center gap-2 text-[11px] text-[#18212F] cursor-pointer flex-1 min-w-0">
-                        <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
-                        <span className="font-medium shrink-0">Signed APF Form *</span>
-                        <span className="text-[11px] text-[#1F7A4D] font-mono truncate ml-auto mr-2">
-                          {apfFile
-                            ? apfFile.name
-                            : existingCarriedFiles[0]
-                            ? `${existingCarriedFiles[0].name} (existing)`
-                            : "Choose PDF / PNG / JPEG"}
-                        </span>
-                        <input
-                          key={apfFile ? apfFile.name : "apf-empty"}
-                          type="file"
-                          accept=".pdf,image/png,image/jpeg"
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.[0]) {
-                              setApfFile(e.target.files[0]);
-                              setPreScreenResult(null);
-                              setPreScreenError("");
-                            }
-                          }}
-                        />
-                      </label>
-                      {apfFile && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setApfFile(null);
-                            setPreScreenResult(null);
-                            setPreScreenError("");
-                          }}
-                          className="text-[#5B6678] hover:text-[#B3261E] transition p-1 rounded hover:bg-[#FBEDEC] cursor-pointer shrink-0"
-                          title="Remove attachment"
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Mandatory Waivers File Picker */}
-                    <div className="flex items-center justify-between p-2.5 rounded-md bg-white border border-[#DDE2EA] hover:border-[#24408E]/50 transition">
-                      <label className="flex items-center gap-2 text-[11px] text-[#18212F] cursor-pointer flex-1 min-w-0">
-                        <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
-                        <span className="font-medium shrink-0">Participant Waivers (If Off-Campus / MPH1)</span>
-                        <span className="text-[11px] text-[#1F7A4D] font-mono truncate ml-auto mr-2">
-                          {waiverFile
-                            ? waiverFile.name
-                            : existingCarriedFiles[1]
-                            ? `${existingCarriedFiles[1].name} (existing)`
-                            : "Choose PDF / PNG / JPEG"}
-                        </span>
-                        <input
-                          key={waiverFile ? waiverFile.name : "waiver-empty"}
-                          type="file"
-                          accept=".pdf,image/png,image/jpeg"
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.[0]) {
-                              setWaiverFile(e.target.files[0]);
-                              setPreScreenResult(null);
-                              setPreScreenError("");
-                            }
-                          }}
-                        />
-                      </label>
-                      {waiverFile && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWaiverFile(null);
-                            setPreScreenResult(null);
-                            setPreScreenError("");
-                          }}
-                          className="text-[#5B6678] hover:text-[#B3261E] transition p-1 rounded hover:bg-[#FBEDEC] cursor-pointer shrink-0"
-                          title="Remove attachment"
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Pre-Submission Multimodal AI Check Button */}
-                  <button
-                    type="button"
-                    onClick={handleRunAiPreScreen}
-                    disabled={preScreening || !apfFile}
-                    className="w-full py-2.5 px-3 rounded-md bg-[#EAEFFA] hover:bg-[#DCE6FA] border border-[#24408E]/30 text-[#24408E] font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-                  >
-                    {preScreening ? (
-                      <>
-                        <Loader2 className="size-3.5 animate-spin text-[#24408E]" />
-                        Inspecting PDF/Image &amp; Visual Signatures...
-                      </>
-                    ) : (
-                      <>
-                        <FileCheck2 className="size-3.5 text-[#24408E]" />
-                        Run AI Document &amp; Signature Check
-                      </>
+                  {/* Signed APF Form */}
+                  <div className="flex items-center justify-between p-2.5 rounded-md bg-white border border-[#DDE2EA] hover:border-[#24408E]/50 transition">
+                    <label className="flex items-center gap-2 text-xs text-[#18212F] cursor-pointer flex-1 min-w-0">
+                      <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                      <span className="font-medium shrink-0">Signed APF Form *</span>
+                      <span className="text-[11px] text-[#1F7A4D] font-mono truncate ml-auto mr-2">
+                        {apfFile
+                          ? apfFile.name
+                          : existingCarriedFiles[0]
+                          ? `${existingCarriedFiles[0].name} (existing)`
+                          : "Choose PDF / PNG / JPEG"}
+                      </span>
+                      <input
+                        key={apfFile ? apfFile.name : "apf-empty"}
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            setApfFile(e.target.files[0]);
+                          }
+                        }}
+                      />
+                    </label>
+                    {apfFile && (
+                      <button
+                        type="button"
+                        onClick={() => setApfFile(null)}
+                        className="text-[#5B6678] hover:text-[#B3261E] transition p-1 rounded hover:bg-[#FBEDEC] cursor-pointer shrink-0"
+                        title="Remove attachment"
+                      >
+                        <X className="size-3.5" />
+                      </button>
                     )}
-                  </button>
+                  </div>
 
-                  {preScreenError && (
-                    <div className="p-3 rounded-md bg-[#FBEDEC] border border-[#E2B3AF] text-[#B3261E] text-xs space-y-2">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#B3261E]" />
-                        <span>{preScreenError}</span>
-                      </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <input
-                          type="url"
-                          value={backendUrlInput}
-                          onChange={(e) => setBackendUrlInput(e.target.value)}
-                          placeholder="https://bacxnabacx-pbl-notified-backend.vercel.app"
-                          className="flex-1 p-1.5 rounded bg-white border border-[#C9D0DB] text-[11px] text-[#18212F] focus:border-[#24408E] outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAiBackendUrlOverride(backendUrlInput);
-                            setPreScreenError("");
-                          }}
-                          className="px-2.5 py-1.5 rounded bg-[#24408E] hover:bg-[#1B3270] text-white font-semibold text-[10px] uppercase cursor-pointer"
-                        >
-                          Save URL
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Participant Waivers */}
+                  <div className="flex items-center justify-between p-2.5 rounded-md bg-white border border-[#DDE2EA] hover:border-[#24408E]/50 transition">
+                    <label className="flex items-center gap-2 text-xs text-[#18212F] cursor-pointer flex-1 min-w-0">
+                      <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                      <span className="font-medium shrink-0">Participant Waivers (If Off-Campus / MPH1)</span>
+                      <span className="text-[11px] text-[#1F7A4D] font-mono truncate ml-auto mr-2">
+                        {waiverFile
+                          ? waiverFile.name
+                          : existingCarriedFiles[1]
+                          ? `${existingCarriedFiles[1].name} (existing)`
+                          : "Choose PDF / PNG / JPEG"}
+                      </span>
+                      <input
+                        key={waiverFile ? waiverFile.name : "waiver-empty"}
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            setWaiverFile(e.target.files[0]);
+                          }
+                        }}
+                      />
+                    </label>
+                    {waiverFile && (
+                      <button
+                        type="button"
+                        onClick={() => setWaiverFile(null)}
+                        className="text-[#5B6678] hover:text-[#B3261E] transition p-1 rounded hover:bg-[#FBEDEC] cursor-pointer shrink-0"
+                        title="Remove attachment"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
 
-                  {/* Structured Multimodal Pre-Screen Feedback */}
-                  {preScreenResult && (
-                    <div
-                      className={`p-3.5 rounded-md border text-xs space-y-3 bg-white ${
-                        preScreenResult.overallStatus === "PASSED"
-                          ? "border-[#B6DFC8]"
-                          : preScreenResult.overallStatus === "NEEDS_REVISION"
-                          ? "border-[#E5C98B]"
-                          : "border-[#E2B3AF]"
-                      }`}
-                    >
-                      {/* Header Status & Completeness Score */}
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1.5 font-bold text-xs text-[#18212F]">
-                          {preScreenResult.overallStatus === "PASSED" ? (
-                            <CheckCircle2 className="size-4 text-[#1F7A4D]" />
-                          ) : preScreenResult.overallStatus === "NEEDS_REVISION" ? (
-                            <AlertTriangle className="size-4 text-[#8A5A00]" />
-                          ) : (
-                            <XCircle className="size-4 text-[#B3261E]" />
-                          )}
-                          AI Compliance Status: {preScreenResult.overallStatus.replace("_", " ")}
-                        </span>
-                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-[#EAEFFA] border border-[#C5D3F3] text-[#24408E]">
-                          Score: {preScreenResult.completenessScore}/100
-                        </span>
-                      </div>
-
-                      {/* Progress Bar */}
-                      <div className="w-full h-1.5 rounded-full bg-[#DDE2EA] overflow-hidden">
-                        <div
-                          className={`h-full transition-all ${
-                            preScreenResult.completenessScore >= 80
-                              ? "bg-[#1F7A4D]"
-                              : preScreenResult.completenessScore >= 50
-                              ? "bg-[#D97706]"
-                              : "bg-[#B3261E]"
-                          }`}
-                          style={{ width: `${preScreenResult.completenessScore}%` }}
-                        />
-                      </div>
-
-                      {/* Visual Signature Verification Box */}
-                      <div className="p-3 rounded-md bg-[#F7F8FA] border border-[#DDE2EA] space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px] font-bold">
-                          <span className="flex items-center gap-1.5 text-[#18212F]">
-                            <PenTool className="size-3.5 text-[#24408E]" /> Visual Signature Check
-                          </span>
-                          <span
-                            className={
-                              preScreenResult.signatureCheck.signaturesDetected
-                                ? "text-[#1F7A4D]"
-                                : "text-[#B3261E]"
-                            }
-                          >
-                            {preScreenResult.signatureCheck.signaturesDetected
-                              ? "✓ Signatures Detected"
-                              : "✗ No Signatures Detected"}
-                          </span>
-                        </div>
-
-                        {preScreenResult.signatureCheck.detectedSignatories.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {preScreenResult.signatureCheck.detectedSignatories.map((sig, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-0.5 rounded bg-[#E6F3EC] border border-[#B6DFC8] text-[#1F7A4D] text-[10px] font-medium"
-                              >
-                                ✓ {sig}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        {preScreenResult.signatureCheck.missingSignatureLines.length > 0 && (
-                          <div className="p-2 rounded bg-[#FBEDEC] border border-[#E2B3AF] text-[#B3261E] space-y-1">
-                            <div className="text-[10px] font-bold uppercase tracking-wider">
-                              Missing / Blank Signature Alerts
-                            </div>
-                            <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                              {preScreenResult.signatureCheck.missingSignatureLines.map((line, idx) => (
-                                <li key={idx}>{line}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {preScreenResult.signatureCheck.visualNotes && (
-                          <p className="text-[11px] text-[#5B6678] leading-relaxed">
-                            <span className="text-[#18212F] font-semibold">Visual notes: </span>
-                            {preScreenResult.signatureCheck.visualNotes}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Institutional Checklist */}
-                      {preScreenResult.checklistEvaluation.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-[#5B6678]">
-                            Institutional Requirement Checklist
-                          </div>
-                          <div className="divide-y divide-[#DDE2EA] rounded-md border border-[#DDE2EA] bg-white">
-                            {preScreenResult.checklistEvaluation.map((row, idx) => (
-                              <div key={idx} className="p-2.5 flex items-start justify-between gap-2 text-[11px]">
-                                <div>
-                                  <div className="font-semibold text-[#18212F]">{row.requirement}</div>
-                                  <div className="text-[#5B6678] text-[10px] mt-0.5">{row.evidence}</div>
-                                </div>
-                                <span
-                                  className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                    row.met
-                                      ? "bg-[#E6F3EC] text-[#1F7A4D] border-[#B6DFC8]"
-                                      : "bg-[#FFF4DC] text-[#8A5A00] border-[#E5C98B]"
-                                  }`}
-                                >
-                                  {row.met ? "✓ Met" : "✗ Missing"}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Form vs. Document Inconsistencies */}
-                      {preScreenResult.inconsistencies.length > 0 && (
-                        <div className="p-2.5 rounded-md bg-[#FFF4DC] border border-[#E5C98B] text-[#8A5A00] space-y-1">
-                          <div className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                            <AlertTriangle className="size-3.5" /> Form vs. Document Mismatches
-                          </div>
-                          <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                            {preScreenResult.inconsistencies.map((inc, idx) => (
-                              <li key={idx}>{inc}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Reviewer Summary */}
-                      <div className="p-2.5 rounded-md bg-[#EAEFFA]/60 border border-[#C5D3F3] text-[11px] text-[#18212F] leading-relaxed">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#24408E] block mb-0.5">
-                          Reviewer Summary
-                        </span>
-                        {preScreenResult.reviewerSummary}
-                      </div>
-                    </div>
-                  )}
+                  {/* Additional Supporting Document */}
+                  <div className="flex items-center justify-between p-2.5 rounded-md bg-white border border-[#DDE2EA] hover:border-[#24408E]/50 transition">
+                    <label className="flex items-center gap-2 text-xs text-[#18212F] cursor-pointer flex-1 min-w-0">
+                      <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                      <span className="font-medium shrink-0">Additional Supporting Document (Optional)</span>
+                      <span className="text-[11px] text-[#1F7A4D] font-mono truncate ml-auto mr-2">
+                        {supportingFile
+                          ? supportingFile.name
+                          : existingCarriedFiles[2]
+                          ? `${existingCarriedFiles[2].name} (existing)`
+                          : "Choose PDF / PNG / JPEG"}
+                      </span>
+                      <input
+                        key={supportingFile ? supportingFile.name : "supporting-empty"}
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            setSupportingFile(e.target.files[0]);
+                          }
+                        }}
+                      />
+                    </label>
+                    {supportingFile && (
+                      <button
+                        type="button"
+                        onClick={() => setSupportingFile(null)}
+                        className="text-[#5B6678] hover:text-[#B3261E] transition p-1 rounded hover:bg-[#FBEDEC] cursor-pointer shrink-0"
+                        title="Remove attachment"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Direct Unified Check & Submit / Resubmit Button */}
+                {/* Single Standard Submit Button */}
                 <div className="flex items-center gap-3 pt-2">
                   {editingEvent && (
                     <button
@@ -1301,17 +1111,17 @@ export function FacilitatorInterface({
                   )}
                   <button
                     type="submit"
-                    disabled={submitting || preScreening}
+                    disabled={submitting}
                     className="flex-1 py-2.5 px-4 rounded-md font-bold text-xs flex items-center justify-center gap-2 transition-all bg-[#24408E] hover:bg-[#1B3270] text-white shadow-xs cursor-pointer disabled:opacity-50"
                   >
                     <Send className="size-3.5" />
                     {submitting
                       ? editingEvent
-                        ? "Resubmitting Revised Proposal..."
+                        ? "Resubmitting Proposal..."
                         : "Submitting Proposal..."
                       : editingEvent
-                      ? "Save Changes & Resubmit to Admin"
-                      : "Check & Submit Proposal"}
+                      ? "Save Changes & Resubmit Proposal"
+                      : "Submit Proposal"}
                   </button>
                 </div>
               </form>
@@ -1338,10 +1148,6 @@ export function FacilitatorInterface({
                 ) : (
                   events.map((item) => {
                     const decoded = decodeProposalDescription(item.description);
-                    const aiPre: PreScreenResult | undefined =
-                      item.ai_prescreen_result ||
-                      decoded.preScreen ||
-                      cachedPreScreens[String(item.event_id)];
                     const needsRev = isRevisionStatus(item.status);
                     return (
                       <div
@@ -1358,20 +1164,8 @@ export function FacilitatorInterface({
                           <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                             {decoded.files.length > 0 && (
                               <span className="text-[10px] font-mono px-2 py-0.5 rounded border bg-[#EAEFFA] text-[#24408E] border-[#C5D3F3] flex items-center gap-1">
-                                <Paperclip className="size-3" /> {decoded.files.length} PDF/Doc
-                              </span>
-                            )}
-                            {aiPre && (
-                              <span
-                                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                                  aiPre.overallStatus === "PASSED"
-                                    ? "bg-[#E6F3EC] text-[#1F7A4D] border-[#B6DFC8]"
-                                    : aiPre.overallStatus === "NEEDS_REVISION"
-                                    ? "bg-[#FFF4DC] text-[#8A5A00] border-[#E5C98B]"
-                                    : "bg-[#FBEDEC] text-[#B3261E] border-[#E2B3AF]"
-                                }`}
-                              >
-                                AI: {aiPre.overallStatus.replace("_", " ")} ({aiPre.completenessScore}%)
+                                <Paperclip className="size-3" /> {decoded.files.length} Attachment
+                                {decoded.files.length === 1 ? "" : "s"}
                               </span>
                             )}
                             <span
@@ -1423,22 +1217,13 @@ export function FacilitatorInterface({
                           </div>
                         )}
 
-                        {aiPre?.reviewerSummary && (
-                          <div className="p-2.5 rounded-md bg-[#EAEFFA]/60 border border-[#C5D3F3] text-[11px] text-[#18212F]">
-                            <span className="text-[10px] font-bold text-[#24408E] uppercase tracking-wider block mb-0.5">
-                              AI Pre-Screen Summary
-                            </span>
-                            {aiPre.reviewerSummary}
-                          </div>
-                        )}
-
                         {needsRev && (
                           <div className="p-3.5 rounded-md bg-[#FFF4DC] border border-[#E5C98B] text-xs space-y-2.5 mt-2">
                             <div>
                               <span className="font-bold flex items-center gap-1.5 mb-0.5 text-[#8A5A00]">
                                 <AlertCircle className="size-3.5" /> Coordinator Revision Notes:
                               </span>
-                              <p className="text-[#6B4600]">
+                              <p className="text-[#6B4600] whitespace-pre-line">
                                 {item.admin_feedback ||
                                   "The coordinator requested updates before this proposal can be endorsed."}
                               </p>
