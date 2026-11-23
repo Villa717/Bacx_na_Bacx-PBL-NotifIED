@@ -11,14 +11,23 @@ function isLocalhostHost(): boolean {
   return host === "localhost" || host === "127.0.0.1";
 }
 
+function isPlaceholderUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes("your-backend-project.vercel.app") ||
+    lower.includes("your-ai-backend.vercel.app") ||
+    lower.includes("your-backend.vercel.app")
+  );
+}
+
 export function getAiBackendUrl(): string {
-  if (ENV_BACKEND_URL) return ENV_BACKEND_URL;
   try {
     const saved = localStorage.getItem(BACKEND_URL_OVERRIDE_KEY)?.trim().replace(/\/$/, "");
-    if (saved) return saved;
+    if (saved && !isPlaceholderUrl(saved)) return saved;
   } catch {
     // Ignore storage access errors
   }
+  if (ENV_BACKEND_URL && !isPlaceholderUrl(ENV_BACKEND_URL)) return ENV_BACKEND_URL;
   return isLocalhostHost() ? "http://localhost:4000" : "";
 }
 

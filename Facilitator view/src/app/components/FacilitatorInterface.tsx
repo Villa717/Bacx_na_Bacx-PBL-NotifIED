@@ -36,6 +36,12 @@ import {
   uploadEventDocuments,
   type PreScreenResult,
 } from "../../lib/aiClient";
+import {
+  decodeProposalDescription,
+  encodeProposalDescriptionWithAttachments,
+  fileToCarriedAttachment,
+  type CarriedAttachmentFile,
+} from "../../lib/proposalAttachments";
 
 export interface FacilitatorUser {
   user_id?: number;
@@ -285,10 +291,32 @@ export function FacilitatorInterface({
     const documentPath = await tryUploadToStorage(apfFile, "apf");
     const waiverPath = waiverFile ? await tryUploadToStorage(waiverFile, "waivers") : null;
 
+    const documentPublicUrl = documentPath
+      ? supabase.storage.from(DEFAULT_STORAGE_BUCKET).getPublicUrl(documentPath).data?.publicUrl || null
+      : null;
+    const waiverPublicUrl = waiverPath
+      ? supabase.storage.from(DEFAULT_STORAGE_BUCKET).getPublicUrl(waiverPath).data?.publicUrl || null
+      : null;
+
+    // Package attached PDFs + AI pre-screen so they carry over automatically to Admin & Department Head
+    // even on the unmodified original Supabase schema (without needing Storage bucket or extra columns)
+    const carriedFiles: CarriedAttachmentFile[] = [];
+    if (apfFile && isSupportedMultimodalFile(apfFile)) {
+      carriedFiles.push(await fileToCarriedAttachment(apfFile, documentPublicUrl));
+    }
+    if (waiverFile && isSupportedMultimodalFile(waiverFile)) {
+      carriedFiles.push(await fileToCarriedAttachment(waiverFile, waiverPublicUrl));
+    }
+
+    const encodedDescription = encodeProposalDescriptionWithAttachments(description.trim(), {
+      files: carriedFiles,
+      preScreen: aiResult,
+    });
+
     const basePayload = {
       title: title.trim(),
       venue: venue.trim(),
-      description: description.trim(),
+      description: encodedDescription,
       event_date: date,
       start_time: startTime || null,
       end_time: endTime || null,
@@ -1103,8 +1131,11 @@ export function FacilitatorInterface({
                   </div>
                 ) : (
                   events.map((item) => {
+                    const decoded = decodeProposalDescription(item.description);
                     const aiPre: PreScreenResult | undefined =
-                      item.ai_prescreen_result || cachedPreScreens[String(item.event_id)];
+                      item.ai_prescreen_result ||
+                      decoded.preScreen ||
+                      cachedPreScreens[String(item.event_id)];
                     return (
                       <div key={item.event_id} className="p-4 bg-[#16203D] border border-white/10 space-y-2 text-left">
                         <div className="flex items-start justify-between gap-3">
@@ -1113,6 +1144,11 @@ export function FacilitatorInterface({
                             <p className="text-xs text-[#8D99AE]">{item.organization || "Student Org"}</p>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
+                            {decoded.files.length > 0 && (
+                              <span className="text-[10px] font-mono px-2 py-0.5 border bg-blue-500/15 text-blue-300 border-blue-500/30 flex items-center gap-1">
+                                <Paperclip className="size-3" /> {decoded.files.length} PDF/Doc
+                              </span>
+                            )}
                             {aiPre && (
                               <span
                                 className={`text-[10px] font-mono font-bold px-2 py-0.5 border ${

@@ -45,6 +45,11 @@ import {
   type SurveyResponseEntry,
   type TriageResult,
 } from "../../lib/aiClient";
+import {
+  carriedAttachmentToBlobUrl,
+  carriedAttachmentToFile,
+  decodeProposalDescription,
+} from "../../lib/proposalAttachments";
 
 // Point this at your published privacy notice (the sign-up form collects name and email).
 const PRIVACY_URL = "/privacy";
@@ -947,10 +952,14 @@ function ProposalApprovalsView({
   );
 
   const selected = queue.find((e) => e.event_id === selectedId) ?? queue[0] ?? null;
+  const decodedSelected = decodeProposalDescription(selected?.description);
+  const selectedCarriedFiles = decodedSelected.files;
   const link = selected?.external_registration_link || selected?.registration_link;
   const pc = selected?.precheck;
   const aiPreScreen = selected
-    ? selected.ai_prescreen_result || preScreenMap[String(selected.event_id)]
+    ? selected.ai_prescreen_result ||
+      decodedSelected.preScreen ||
+      preScreenMap[String(selected.event_id)]
     : undefined;
   const selectedTriage = selected?.aiTriage;
 
@@ -1098,23 +1107,30 @@ function ProposalApprovalsView({
   };
 
   const handleInspectDocument = async (ev: EventRecord, file?: File) => {
-    const fileToSend = file ?? attachedFilesByEvent[ev.event_id]?.file;
     if (file) {
       handleAttachLocalDoc(ev, file);
     }
+
+    const decoded = decodeProposalDescription(ev.description);
+    const carriedFileObjects = decoded.files
+      .map((att) => carriedAttachmentToFile(att))
+      .filter((f): f is File => Boolean(f));
+
+    const localOverride = file ?? attachedFilesByEvent[ev.event_id]?.file;
+    const filesToSend = localOverride ? [localOverride] : carriedFileObjects;
 
     setPreScreenLoading(true);
     setPreScreenError("");
     try {
       const storageDocuments =
-        !fileToSend && ev.document_path
+        filesToSend.length === 0 && ev.document_path
           ? [
               { bucket: ev.document_bucket, path: ev.document_path },
               ...(ev.waiver_path ? [{ bucket: ev.document_bucket, path: ev.waiver_path }] : []),
             ]
           : [];
       const result = await runDocumentPreScreen({
-        files: fileToSend ? [fileToSend] : [],
+        files: filesToSend,
         storageDocuments,
         eventId: ev.event_id,
         metadata: {
@@ -1124,7 +1140,7 @@ function ProposalApprovalsView({
           startTime: ev.start_time,
           endTime: ev.end_time,
           venue: ev.venue,
-          description: ev.description,
+          description: decoded.cleanDescription,
           budget: ev.estimated_budget,
           expectedAttendees: ev.proposed_attendees,
           hasExternalGuests: ev.has_external_guests,
@@ -1424,6 +1440,7 @@ function ProposalApprovalsView({
                 <div className="flex flex-wrap items-center gap-2">
                   {(selected.document_path ||
                     selectedRemoteDocs.length > 0 ||
+                    selectedCarriedFiles.length > 0 ||
                     selectedAttachedLocal) && (
                     <button
                       type="button"
@@ -1458,12 +1475,43 @@ function ProposalApprovalsView({
               </div>
 
               {(selectedAttachedLocal ||
+                selectedCarriedFiles.length > 0 ||
                 selectedRemoteDocs.length > 0 ||
                 selected.document_path) && (
                 <div className="rounded-md border border-[#DDE2EA] bg-white p-3 space-y-2 text-xs">
                   <p className="font-semibold text-[#5B6678] uppercase tracking-wide text-[11px]">
                     Attached proposal document(s)
                   </p>
+                  {selectedCarriedFiles.map((att, idx) => (
+                    <div
+                      key={`carried-${idx}-${att.name}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#EAEFFA]/60 px-2.5 py-2 border border-[#DDE2EA]"
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                        <span className="font-medium text-[#18212F] truncate">{att.name}</span>
+                        <span className="text-[#1F7A4D] shrink-0">
+                          ({Math.max(1, Math.round(att.size / 1024))} KB · Sent by Facilitator)
+                        </span>
+                      </span>
+                      {att.tooLargeForInline && !att.storageUrl ? (
+                        <span className="text-[#8A5A00] shrink-0">
+                          Over 3 MB — attach locally to inspect
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = carriedAttachmentToBlobUrl(att);
+                            if (url) window.open(url, "_blank", "noopener,noreferrer");
+                          }}
+                          className="text-[#24408E] underline flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                          View PDF <ExternalLink className="size-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                   {selectedAttachedLocal && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#F7F8FA] px-2.5 py-2 border border-[#DDE2EA]">
                       <span className="flex items-center gap-1.5 min-w-0">
@@ -1495,36 +1543,39 @@ function ProposalApprovalsView({
                       </div>
                     </div>
                   )}
-                  {selectedRemoteDocs.map((doc) => (
-                    <div
-                      key={`${doc.index}-${doc.filename}`}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#EAEFFA]/50 px-2.5 py-2 border border-[#DDE2EA]"
-                    >
-                      <span className="flex items-center gap-1.5 min-w-0">
-                        <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
-                        <span className="font-medium text-[#18212F] truncate">{doc.filename}</span>
-                        <span className="text-[#5B6678] shrink-0">
-                          ({Math.max(1, Math.round(doc.size / 1024))} KB · Sent by Facilitator)
-                        </span>
-                      </span>
-                      <a
-                        href={doc.downloadUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[#24408E] underline flex items-center gap-1 shrink-0"
+                  {selectedCarriedFiles.length === 0 &&
+                    selectedRemoteDocs.map((doc) => (
+                      <div
+                        key={`${doc.index}-${doc.filename}`}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded bg-[#EAEFFA]/50 px-2.5 py-2 border border-[#DDE2EA]"
                       >
-                        View PDF <ExternalLink className="size-3" />
-                      </a>
-                    </div>
-                  ))}
-                  {selected.document_path && selectedRemoteDocs.length === 0 && (
-                    <div className="flex items-center justify-between gap-2 rounded bg-[#F7F8FA] px-2.5 py-2 border border-[#DDE2EA]">
-                      <span className="truncate font-mono text-[11px] text-[#18212F]">
-                        {selected.document_path}
-                      </span>
-                      <span className="text-[#1F7A4D] font-medium shrink-0">Supabase Storage</span>
-                    </div>
-                  )}
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <Paperclip className="size-3.5 text-[#24408E] shrink-0" />
+                          <span className="font-medium text-[#18212F] truncate">{doc.filename}</span>
+                          <span className="text-[#5B6678] shrink-0">
+                            ({Math.max(1, Math.round(doc.size / 1024))} KB · Sent by Facilitator)
+                          </span>
+                        </span>
+                        <a
+                          href={doc.downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#24408E] underline flex items-center gap-1 shrink-0"
+                        >
+                          View PDF <ExternalLink className="size-3" />
+                        </a>
+                      </div>
+                    ))}
+                  {selected.document_path &&
+                    selectedCarriedFiles.length === 0 &&
+                    selectedRemoteDocs.length === 0 && (
+                      <div className="flex items-center justify-between gap-2 rounded bg-[#F7F8FA] px-2.5 py-2 border border-[#DDE2EA]">
+                        <span className="truncate font-mono text-[11px] text-[#18212F]">
+                          {selected.document_path}
+                        </span>
+                        <span className="text-[#1F7A4D] font-medium shrink-0">Supabase Storage</span>
+                      </div>
+                    )}
                 </div>
               )}
 
@@ -1539,7 +1590,7 @@ function ProposalApprovalsView({
                       type="url"
                       value={backendUrlInput}
                       onChange={(e) => setBackendUrlInput(e.target.value)}
-                      placeholder="https://your-ai-backend.vercel.app"
+                      placeholder="Paste your real deployed backend URL (e.g. https://backend-xyz.vercel.app)"
                       className={`${input} flex-1 min-w-[200px] py-1.5 text-xs`}
                     />
                     <button
@@ -1552,7 +1603,7 @@ function ProposalApprovalsView({
                     >
                       Save AI Backend URL
                     </button>
-                    {selectedAttachedLocal && (
+                    {(selectedAttachedLocal || selectedCarriedFiles.length > 0) && (
                       <button
                         type="button"
                         onClick={() => handleInspectDocument(selected)}
@@ -1698,7 +1749,9 @@ function ProposalApprovalsView({
                 </>
               ) : (
                 <p className="text-sm text-[#5B6678]">
-                  No AI pre-screening result recorded yet. Use <b>Inspect PDF / Image</b> above to verify signatures and compliance.
+                  {selectedCarriedFiles.length > 0
+                    ? "Click \"Run AI Check on Attached PDF\" above to inspect the Facilitator's submitted document."
+                    : "No AI pre-screening result recorded yet. Use Attach & Inspect PDF / Image above to verify signatures and compliance."}
                 </p>
               )}
             </section>
@@ -1706,7 +1759,7 @@ function ProposalApprovalsView({
             <section>
               <h3 className="mb-2 text-sm font-semibold">Description</h3>
               <p className="max-w-prose text-sm leading-relaxed">
-                {selected.description || "No description provided."}
+                {decodedSelected.cleanDescription || "No description provided."}
               </p>
             </section>
 

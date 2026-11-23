@@ -57,6 +57,11 @@ import {
   type SurveyResponseEntry,
   type TriageResult,
 } from "../lib/aiClient";
+import {
+  carriedAttachmentToBlobUrl,
+  carriedAttachmentToFile,
+  decodeProposalDescription,
+} from "../lib/proposalAttachments";
 import adminBg from "../assets/admin-bg.jpeg";
 
 // Designated prototype coordinator credentials (or accept any valid @apc.edu.ph staff/admin email)
@@ -481,7 +486,9 @@ export function CoordinatorInterface({
     ev.ai_triage_result || triageMap[String(ev.event_id)];
 
   const getEventPreScreen = (ev: EventRecord): PreScreenResult | undefined =>
-    ev.ai_prescreen_result || preScreenMap[String(ev.event_id)];
+    ev.ai_prescreen_result ||
+    decodeProposalDescription(ev.description).preScreen ||
+    preScreenMap[String(ev.event_id)];
 
   const [dbError, setDbError] = useState("");
 
@@ -647,6 +654,8 @@ export function CoordinatorInterface({
   >({});
   const [backendUrlInput, setBackendUrlInput] = useState(() => getAiBackendUrl());
 
+  const decodedSelected = decodeProposalDescription(selectedEvent?.description);
+  const selectedCarriedFiles = decodedSelected.files;
   const selectedPreScreen = selectedEvent ? getEventPreScreen(selectedEvent) : undefined;
   const selectedTriage = selectedEvent ? getEventTriage(selectedEvent) : undefined;
   const selectedAttachedLocal = selectedEvent
@@ -718,19 +727,26 @@ export function CoordinatorInterface({
     }
   };
 
-  // ── AI Handler 1: On-Demand Multimodal Document Inspection (Upload, Attached Relay, or Supabase Storage) ──
+  // ── AI Handler 1: On-Demand Multimodal Document Inspection (Carried Facilitator PDF, Upload, Relay, or Storage) ──
   const handleInspectProposalDocument = async (ev: EventRecord, file?: File) => {
-    const fileToSend = file ?? attachedFilesByEvent[ev.event_id]?.file;
     if (file) {
       handleAttachLocalFile(ev, file);
     }
+
+    const decoded = decodeProposalDescription(ev.description);
+    const carriedFileObjects = decoded.files
+      .map((att) => carriedAttachmentToFile(att))
+      .filter((f): f is File => Boolean(f));
+
+    const localOverride = file ?? attachedFilesByEvent[ev.event_id]?.file;
+    const filesToSend = localOverride ? [localOverride] : carriedFileObjects;
 
     setPreScreenLoading(true);
     setPreScreenError("");
 
     try {
       const storageDocuments =
-        !fileToSend && ev.document_path
+        filesToSend.length === 0 && ev.document_path
           ? [
               { bucket: ev.document_bucket, path: ev.document_path },
               ...(ev.waiver_path ? [{ bucket: ev.document_bucket, path: ev.waiver_path }] : []),
@@ -738,7 +754,7 @@ export function CoordinatorInterface({
           : [];
 
       const result = await runDocumentPreScreen({
-        files: fileToSend ? [fileToSend] : [],
+        files: filesToSend,
         storageDocuments,
         eventId: ev.event_id,
         metadata: {
@@ -748,7 +764,7 @@ export function CoordinatorInterface({
           startTime: ev.start_time,
           endTime: ev.end_time,
           venue: ev.venue,
-          description: ev.description,
+          description: decoded.cleanDescription,
           budget: ev.estimated_budget,
           expectedAttendees: ev.proposed_attendees,
           hasExternalGuests: ev.has_external_guests,
@@ -786,7 +802,7 @@ export function CoordinatorInterface({
           organization: ev.organization,
           eventDate: ev.event_date,
           venue: ev.venue,
-          description: ev.description,
+          description: decodeProposalDescription(ev.description).cleanDescription,
           expectedCrowdSize: ev.proposed_attendees,
           budget: ev.estimated_budget,
           hasExternalGuests: ev.has_external_guests,
@@ -827,7 +843,7 @@ export function CoordinatorInterface({
         organization: ev.organization,
         eventDate: ev.event_date,
         venue: ev.venue,
-        description: ev.description,
+        description: decodeProposalDescription(ev.description).cleanDescription,
         expectedCrowdSize: ev.proposed_attendees,
         budget: ev.estimated_budget,
         hasExternalGuests: ev.has_external_guests,
@@ -856,7 +872,7 @@ export function CoordinatorInterface({
     const eventTitle = targetEv?.title || "Campus Academic Symposium";
     const objectives =
       surveyObjectives.trim() ||
-      targetEv?.description ||
+      decodeProposalDescription(targetEv?.description).cleanDescription ||
       `Evaluate student learning outcomes, logistics, and speaker effectiveness for ${eventTitle}.`;
 
     setGeneratingSurvey(true);
@@ -1679,6 +1695,7 @@ export function CoordinatorInterface({
                       <div className="flex flex-wrap items-center gap-2">
                         {(selectedEvent.document_path ||
                           selectedRemoteDocs.length > 0 ||
+                          selectedCarriedFiles.length > 0 ||
                           selectedAttachedLocal) && (
                           <button
                             type="button"
@@ -1714,14 +1731,46 @@ export function CoordinatorInterface({
                       </div>
                     </div>
 
-                    {/* Attached Proposal Documents Bar (Facilitator-uploaded + Directly Attached) */}
+                    {/* Attached Proposal Documents Bar (Carried from Facilitator + Directly Attached) */}
                     {(selectedAttachedLocal ||
+                      selectedCarriedFiles.length > 0 ||
                       selectedRemoteDocs.length > 0 ||
                       selectedEvent.document_path) && (
                       <div className="p-3 bg-[#0D1836] border border-white/10 space-y-2 text-xs">
                         <div className="text-[10px] font-mono uppercase tracking-wider text-[#FDB813]">
                           Attached Proposal Document(s)
                         </div>
+
+                        {selectedCarriedFiles.map((att, idx) => (
+                          <div
+                            key={`carried-${idx}-${att.name}`}
+                            className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[#090F24] border border-blue-500/40"
+                          >
+                            <span className="flex items-center gap-2 text-white truncate min-w-0">
+                              <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
+                              <span className="font-medium truncate">{att.name}</span>
+                              <span className="text-[10px] font-mono text-emerald-400 shrink-0">
+                                ({Math.max(1, Math.round(att.size / 1024))} KB · Sent by Facilitator)
+                              </span>
+                            </span>
+                            {att.tooLargeForInline && !att.storageUrl ? (
+                              <span className="text-[10px] text-amber-300 shrink-0">
+                                Over 3 MB — attach locally to inspect
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const url = carriedAttachmentToBlobUrl(att);
+                                  if (url) window.open(url, "_blank", "noopener,noreferrer");
+                                }}
+                                className="px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-[10px] text-blue-200 flex items-center gap-1 shrink-0 cursor-pointer"
+                              >
+                                View PDF <ExternalLink className="size-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
 
                         {selectedAttachedLocal && (
                           <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[#090F24] border border-emerald-500/30">
@@ -1731,7 +1780,7 @@ export function CoordinatorInterface({
                                 {selectedAttachedLocal.file.name}
                               </span>
                               <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                ({Math.max(1, Math.round(selectedAttachedLocal.file.size / 1024))} KB)
+                                ({Math.max(1, Math.round(selectedAttachedLocal.file.size / 1024))} KB · Attached in Admin)
                               </span>
                             </span>
                             <div className="flex items-center gap-2 shrink-0">
@@ -1755,42 +1804,45 @@ export function CoordinatorInterface({
                           </div>
                         )}
 
-                        {selectedRemoteDocs.map((doc) => (
-                          <div
-                            key={`${doc.index}-${doc.filename}`}
-                            className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[#090F24] border border-blue-500/30"
-                          >
-                            <span className="flex items-center gap-2 text-white truncate min-w-0">
-                              <Paperclip className="size-3.5 text-blue-400 shrink-0" />
-                              <span className="font-medium truncate">{doc.filename}</span>
-                              <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                ({Math.max(1, Math.round(doc.size / 1024))} KB · Sent by Facilitator)
-                              </span>
-                            </span>
-                            <a
-                              href={doc.downloadUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-[10px] text-blue-200 flex items-center gap-1 shrink-0"
+                        {selectedCarriedFiles.length === 0 &&
+                          selectedRemoteDocs.map((doc) => (
+                            <div
+                              key={`${doc.index}-${doc.filename}`}
+                              className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[#090F24] border border-blue-500/30"
                             >
-                              View PDF <ExternalLink className="size-3" />
-                            </a>
-                          </div>
-                        ))}
-
-                        {selectedEvent.document_path && selectedRemoteDocs.length === 0 && (
-                          <div className="flex items-center justify-between gap-2 p-2 bg-[#090F24] border border-white/10">
-                            <span className="flex items-center gap-2 text-slate-200 truncate">
-                              <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
-                              <span className="truncate font-mono text-[11px]">
-                                {selectedEvent.document_path}
+                              <span className="flex items-center gap-2 text-white truncate min-w-0">
+                                <Paperclip className="size-3.5 text-blue-400 shrink-0" />
+                                <span className="font-medium truncate">{doc.filename}</span>
+                                <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                  ({Math.max(1, Math.round(doc.size / 1024))} KB · Sent by Facilitator)
+                                </span>
                               </span>
-                            </span>
-                            <span className="text-[10px] text-emerald-400 shrink-0">
-                              Supabase Storage
-                            </span>
-                          </div>
-                        )}
+                              <a
+                                href={doc.downloadUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-[10px] text-blue-200 flex items-center gap-1 shrink-0"
+                              >
+                                View PDF <ExternalLink className="size-3" />
+                              </a>
+                            </div>
+                          ))}
+
+                        {selectedEvent.document_path &&
+                          selectedCarriedFiles.length === 0 &&
+                          selectedRemoteDocs.length === 0 && (
+                            <div className="flex items-center justify-between gap-2 p-2 bg-[#090F24] border border-white/10">
+                              <span className="flex items-center gap-2 text-slate-200 truncate">
+                                <Paperclip className="size-3.5 text-[#FDB813] shrink-0" />
+                                <span className="truncate font-mono text-[11px]">
+                                  {selectedEvent.document_path}
+                                </span>
+                              </span>
+                              <span className="text-[10px] text-emerald-400 shrink-0">
+                                Supabase Storage
+                              </span>
+                            </div>
+                          )}
                       </div>
                     )}
 
@@ -1805,7 +1857,7 @@ export function CoordinatorInterface({
                             type="url"
                             value={backendUrlInput}
                             onChange={(e) => setBackendUrlInput(e.target.value)}
-                            placeholder="https://your-ai-backend.vercel.app"
+                            placeholder="Paste your real deployed backend URL (e.g. https://backend-xyz.vercel.app)"
                             className="flex-1 min-w-[200px] p-1.5 bg-[#0B132B] border border-white/15 text-[11px] text-white focus:border-[#FDB813] outline-none"
                           />
                           <button
@@ -1818,7 +1870,7 @@ export function CoordinatorInterface({
                           >
                             Save AI Backend URL
                           </button>
-                          {selectedAttachedLocal && (
+                          {(selectedAttachedLocal || selectedCarriedFiles.length > 0) && (
                             <button
                               type="button"
                               onClick={() => handleInspectProposalDocument(selectedEvent)}
@@ -1961,7 +2013,9 @@ export function CoordinatorInterface({
                       <div className="p-4 bg-[#090F24] border border-white/5 text-xs text-[#8D99AE] space-y-1">
                         <p className="text-white font-semibold">No AI pre-screening result recorded yet.</p>
                         <p>
-                          Upload the submitted APF/waiver PDF or scanned image above (or run it from the Facilitator Portal) to verify signatures, institutional requirements, and metadata consistency with Gemini 2.5 Flash.
+                          {selectedCarriedFiles.length > 0
+                            ? "Click \"Run AI Check on Attached PDF\" above to inspect the Facilitator's submitted document with Gemini 2.5 Flash."
+                            : "Upload the submitted APF/waiver PDF or scanned image above (or submit a new proposal from the Facilitator Portal) to verify signatures and compliance with Gemini 2.5 Flash."}
                         </p>
                       </div>
                     )}
@@ -1972,7 +2026,7 @@ export function CoordinatorInterface({
                       Proposal Description
                     </h3>
                     <div className="p-4 bg-[#16203D] rounded-none border border-white/5 text-sm leading-relaxed text-white/90">
-                      {selectedEvent.description || "No description provided."}
+                      {decodedSelected.cleanDescription || "No description provided."}
                     </div>
                   </div>
 
