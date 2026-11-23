@@ -906,6 +906,7 @@ function ProposalApprovalsView({
   onRefresh: () => Promise<void>;
 }) {
   const [tier, setTier] = useState<Tier>("ALL");
+  const [statusFilter, setStatusFilter] = useState<"PENDING" | "ALL">("PENDING");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -927,9 +928,14 @@ function ProposalApprovalsView({
   const [preScreenLoading, setPreScreenLoading] = useState(false);
   const [preScreenError, setPreScreenError] = useState("");
 
+  const pendingOnly = useMemo(
+    () => events.filter((e) => (e.status || "pending").toLowerCase().trim() === "pending"),
+    [events]
+  );
+
   const queue = useMemo(
     () =>
-      events
+      (statusFilter === "PENDING" ? pendingOnly : events)
         .map((e) => {
           const aiTriage = e.ai_triage_result || triageMap[String(e.event_id)];
           const effectiveTier =
@@ -948,7 +954,7 @@ function ProposalApprovalsView({
             (b.aiTriage?.complexityScore || 0) - (a.aiTriage?.complexityScore || 0) ||
             new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
         ),
-    [events, tier, triageMap]
+    [events, pendingOnly, statusFilter, tier, triageMap]
   );
 
   const selected = queue.find((e) => e.event_id === selectedId) ?? queue[0] ?? null;
@@ -1188,6 +1194,9 @@ function ProposalApprovalsView({
       await onRefresh();
     }
 
+    if (statusFilter === "PENDING") {
+      setSelectedId(null);
+    }
     setDialog(null);
     setNote("");
     setSaving(false);
@@ -1206,19 +1215,51 @@ function ProposalApprovalsView({
         className="flex shrink-0 flex-col border-b border-[#DDE2EA] bg-white max-md:max-h-72 md:w-84 md:border-b-0 md:border-r"
       >
         <div className="space-y-3 border-b border-[#DDE2EA] p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div>
               <h1 className="font-serif text-lg font-semibold">Proposals</h1>
               <p className="text-xs text-[#5B6678]">{queue.length} sorted by priority</p>
             </div>
-            <button
-              type="button"
-              aria-label="Refresh proposals"
-              onClick={onRefresh}
-              className={`rounded p-1.5 text-[#5B6678] hover:bg-[#F2F4F7] cursor-pointer ${focusRing}`}
-            >
-              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-md border border-[#DDE2EA] bg-[#F2F4F7] p-0.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter("PENDING");
+                    setSelectedId(null);
+                  }}
+                  className={`rounded px-2 py-0.5 font-medium cursor-pointer ${
+                    statusFilter === "PENDING"
+                      ? "bg-[#24408E] text-white"
+                      : "text-[#5B6678] hover:text-[#18212F]"
+                  }`}
+                >
+                  Pending ({pendingOnly.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter("ALL");
+                    setSelectedId(null);
+                  }}
+                  className={`rounded px-2 py-0.5 font-medium cursor-pointer ${
+                    statusFilter === "ALL"
+                      ? "bg-[#24408E] text-white"
+                      : "text-[#5B6678] hover:text-[#18212F]"
+                  }`}
+                >
+                  All ({events.length})
+                </button>
+              </div>
+              <button
+                type="button"
+                aria-label="Refresh proposals"
+                onClick={onRefresh}
+                className={`rounded p-1.5 text-[#5B6678] hover:bg-[#F2F4F7] cursor-pointer ${focusRing}`}
+              >
+                <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
           </div>
 
           <button
